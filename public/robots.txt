@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://skylark-exim-v4.vercel.app/sitemap.xml
