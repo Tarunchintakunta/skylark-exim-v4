@@ -75,10 +75,12 @@ if hasattr(e, "use_fast_gi"):
 
 vs = s.view_settings
 vs.view_transform = "AgX"
-looks = [l.identifier for l in vs.bl_rna.properties["look"].enum_items]
 pref = {"ext": "AgX - Medium High Contrast", "int": "AgX - Base Contrast", "cold": "AgX - Base Contrast", "dawn": "AgX - Medium Low Contrast"}
-want = pref.get(kind, "None")
-vs.look = want if want in looks else "None"
+# The look enum is context-dependent (empty when read from bl_rna in 5.x), so set it directly.
+try:
+    vs.look = pref.get(kind, "None")
+except TypeError:
+    vs.look = "None"
 vs.exposure = 0.0
 vs.gamma = 1.0
 s.display_settings.display_device = "sRGB"
