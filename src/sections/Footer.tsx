@@ -32,6 +32,7 @@ export default function Footer() {
       <div className="sec-inner footer-base">
         <span>© Skylark Exim</span>
         <span>Made in Blender. No AI imagery.</span>
+        <span>Fish and shrimp 3D scans: ffish.asia / floraZia.com (CC BY 4.0)</span>
         <a href="/licenses">Licences</a>
       </div>
     </footer>
