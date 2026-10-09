@@ -22,7 +22,7 @@ start=$(date +%s)
 if [ "$mode" = preview ]; then
   out="assets-src/render/preview/$b"; [ $# -lt 3 ] && [ "${DRY:-0}" != 1 ] && rm -rf "$out"; mkdir -p "$out" docs/renders
   STEP="${STEP:-2}"
-  py="import bpy; s=bpy.context.scene; s.render.resolution_x=1920; s.render.resolution_y=1080; s.render.resolution_percentage=50; s.eevee.taa_render_samples=16; s.render.use_motion_blur=False; s.render.use_overwrite=True; s.render.image_settings.file_format='PNG'; s.render.filepath='$PWD/$out/'; e=s.eevee; [setattr(e,a,v) for a,v in (('use_raytracing',False),('volumetric_samples',16),('volumetric_tile_size','8')) if hasattr(e,a)]"
+  py="import bpy; s=bpy.context.scene; s.render.resolution_x=1920; s.render.resolution_y=1080; s.render.resolution_percentage=50; s.eevee.taa_render_samples=16; s.render.use_motion_blur=False; s.render.use_overwrite=True; s.render.image_settings.file_format='PNG'; s.render.filepath='$PWD/$out/'; e=s.eevee; [setattr(e,a,v) for a,v in (('volumetric_samples',16),('volumetric_tile_size','8')) if hasattr(e,a)]"
   run "${keep[@]}" "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -s "$F" -e "$L" -j "$STEP" -a
   if [ "$STEP" -gt 1 ] && [ "${DRY:-0}" != 1 ]; then
     [ -f "$(printf "%s/%04d.png" "$out" "$L")" ] || "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -f "$L"
