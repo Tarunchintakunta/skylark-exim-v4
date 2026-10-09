@@ -1,6 +1,8 @@
 # ASSETS.md — external sources (URLs only; nothing binary is in this pack)
 
 ## Photoreal scans (Objaverse on Hugging Face, no login; download with scripts/fetch-scans.sh)
+
+> Correction (10 Oct 2026, from the Objaverse/Sketchfab metadata): the ffish.asia scans are **CC BY 4.0, not CC0** — credit "ffish.asia / floraZia.com" (done on /licenses and in the footer).
 | ID | Species | URL | Licence | Notes |
 |---|---|---|---|---|
 | A-PROD-TUNA | Yellowfin tuna (ffish.asia scan) | https://huggingface.co/datasets/allenai/objaverse/resolve/main/glbs/000-129/d4eeea976932414d91fc786ce6cec547.glb | CC0 | ~57 MB, split into ~20 chunks of 65k verts; colour-checker cube included → clean_scan.py; fins ragged in v3 → rebuild |
