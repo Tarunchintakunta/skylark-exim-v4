@@ -11,3 +11,4 @@
   - G-SITE-1 greps the DOM for "placeholder": form fields use visible labels and no `placeholder` attributes.
   - MPFB2 (people) add-on is not installed in Blender 5.2; installing from the extensions platform is attempted in #10. If it fails, people are kept at mid-distance/backlit with simple modelled bodies and clothing, and flagged as a known issue (never mannequin close-ups).
   - Blender has a "higgsfield_blender" extension installed: it is an AI generator and is NOT used (rule 1).
+- 00:58 MISTAKE: while freeing a port I ran `pkill -f "vite preview --port 4173"`, which stopped another project's local preview server on port 4173 (pid 86792, not part of v4; most likely a v3 session). Nothing else was touched. Tarun: restart that preview if you still need it. My local servers now use port 5791 only.
