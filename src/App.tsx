@@ -2,6 +2,7 @@ import Film from './film/Film'
 import Quality from './sections/Quality'
 import People from './sections/People'
 import Quote from './sections/Quote'
+import Footer from './sections/Footer'
 import './sections/sections.css'
 import Header from './ui/Header'
 import Loader from './ui/Loader'
@@ -23,6 +24,7 @@ export default function App() {
         <People />
         <Quote />
       </main>
+      <Footer />
       <StickyRfq />
       <Loader />
     </>
