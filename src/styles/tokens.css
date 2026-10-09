@@ -1,0 +1,32 @@
+/* Palette "Ice & Marigold" — docs/STORY.md §6 */
+:root {
+  --ink: #0e1417;
+  --frost: #eef3f2;
+  --glaze: #bfd3d6;
+  --steel: #5e6e73;
+  --marigold: #e2a03a;
+  --lagoon: #2f6e68;
+
+  --font-display: 'Fraunces', 'Iowan Old Style', Georgia, serif;
+  --font-text: 'Hanken Grotesk', system-ui, -apple-system, 'Segoe UI', sans-serif;
+
+  /* type scale desktop / mobile (STORY.md §6) */
+  --fs-display: min(9.5vw, 168px);
+  --fs-countdown: 34vw;
+  --fs-h2: 64px;
+  --fs-body: 19px;
+  --fs-eyebrow: 13px;
+  --gutter: clamp(16px, 4vw, 64px);
+  --header-h: 72px;
+  --ease: cubic-bezier(0.22, 1, 0.36, 1);
+}
+@media (max-width: 767px) {
+  :root {
+    --fs-display: 15vw;
+    --fs-countdown: 48vw;
+    --fs-h2: 40px;
+    --fs-body: 17px;
+    --fs-eyebrow: 12px;
+    --header-h: 60px;
+  }
+}
