@@ -1,0 +1,7 @@
+assets-src
+logs
+docs/renders
+test-results
+playwright-report
+.lighthouseci
+node_modules
