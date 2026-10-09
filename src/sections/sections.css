@@ -163,3 +163,95 @@
     background: rgb(14 20 23 / 0.7);
   }
 }
+
+/* B6 Quote */
+.quote-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1.6fr) minmax(0, 1fr);
+  gap: clamp(40px, 6vw, 120px);
+}
+.rfq-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 20px 24px;
+}
+.field {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  font-size: 15px;
+  font-weight: 600;
+}
+.field-wide {
+  margin-top: 20px;
+}
+.field input,
+.field select,
+.field textarea {
+  min-height: 48px;
+  padding: 10px 12px;
+  border: 1px solid var(--steel);
+  border-radius: 2px;
+  background: #fff;
+  color: var(--ink);
+  font-weight: 400;
+  font-size: 17px;
+}
+.field select:disabled {
+  opacity: 0.6;
+}
+.field [aria-invalid='true'] {
+  border-color: #a2361f;
+}
+.field-err {
+  color: #a2361f;
+  font-weight: 500;
+}
+.hp {
+  position: absolute;
+  left: -9999px;
+  width: 1px;
+  height: 1px;
+  overflow: hidden;
+}
+.rfq-submit {
+  margin-top: 28px;
+  border: 0;
+  cursor: pointer;
+  font-size: 17px;
+  min-height: 52px;
+  padding: 0 28px;
+}
+.rfq-note {
+  min-height: 1.5em;
+  color: var(--steel);
+}
+.contact {
+  font-style: normal;
+}
+.contact ul {
+  list-style: none;
+  padding: 0;
+  margin: 8px 0 32px;
+}
+.contact li a,
+.profile-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  font-size: 20px;
+}
+.contact p {
+  margin: 8px 0 32px;
+}
+.profile-link {
+  color: var(--lagoon);
+  font-weight: 600;
+  font-size: 17px;
+}
+@media (max-width: 767px) {
+  .quote-grid,
+  .rfq-row {
+    grid-template-columns: 1fr;
+  }
+}
