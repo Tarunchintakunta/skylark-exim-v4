@@ -19,7 +19,7 @@
   "lint-staged": {
     "src/**/*.{ts,tsx}": [
       "oxlint",
-      "prettier --check"
+      "prettier --write"
     ]
   },
   "dependencies": {
