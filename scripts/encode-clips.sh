@@ -2,7 +2,7 @@
 # Encode scroll-scrub clips: assets-src/video/<id>.mp4 -> public/media/<id>_1920.mp4, <id>_1280.mp4, <id>_960.mp4
 # Scrub-friendly H.264: GOP 6 (keyint 6, no scene-cut keyframes), NO B-frames, faststart, no audio, yuv420p, 24 fps.
 # Hard cap: EVERY tier file <= 2,250 KB. The script starts at a per-tier CRF and raises it (max 34, light denoise from 31) until under the cap.
-# Usage: scripts/encode-clips.sh [id ...]   (no ids = every master in assets-src/video)    Env: SRC OUT FORCE=1 CAP_KB=2250
+# Usage: scripts/encode-clips.sh [id ...]   (no ids = every master in assets-src/video)    Env: SRC OUT FORCE=1 CAP_KB=2250 MAXCRF=34
 set -euo pipefail
 cd "$(dirname "$0")/.."; source scripts/scenes.sh
 SRC="${SRC:-assets-src/video}"; OUT="${OUT:-public/media}"; CAP_KB="${CAP_KB:-2250}"
@@ -22,7 +22,7 @@ for id in "${ids[@]}"; do
       ffmpeg -v error -y -i "$in" -vf "scale=${w}:-2:flags=lanczos$dn" $X264 -crf "$crf" "$o"
       kb=$(( $(fsize "$o")/1024 ))
       [ "$kb" -le "$CAP_KB" ] && break
-      [ "$crf" -ge 34 ] && break
+      [ "$crf" -ge "${MAXCRF:-34}" ] && break
       crf=$((crf+1))
     done
     flag=""; [ "$kb" -gt "$CAP_KB" ] && { flag=" !!OVER CAP"; rc=1; }
