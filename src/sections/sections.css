@@ -381,12 +381,21 @@
 }
 .market {
   padding: 4px 0;
-  color: var(--steel);
+  color: #8a9ca0; /* 6.6:1 on ink; steel is only 3.5:1 there */
   transition: color 0.4s var(--ease);
   font-size: 17px;
 }
 .market.is-on {
   color: var(--frost);
+}
+.market.is-on::before {
+  content: '';
+  display: inline-block;
+  width: 6px;
+  height: 6px;
+  margin: 0 8px 2px 0;
+  border-radius: 50%;
+  background: var(--marigold);
 }
 @media (max-width: 1023px) {
   .markets-stage {
