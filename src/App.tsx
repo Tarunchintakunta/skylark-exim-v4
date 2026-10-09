@@ -1,5 +1,6 @@
 import Film from './film/Film'
 import NowForward from './sections/NowForward'
+import Products from './sections/Products'
 import Stage3D from './three/Stage3D'
 import Quality from './sections/Quality'
 import Markets from './sections/Markets'
@@ -25,6 +26,7 @@ export default function App() {
         <Film />
         <div data-3d-zone>
           <NowForward />
+          <Products />
         </div>
         <Quality />
         <Markets />
@@ -32,7 +34,7 @@ export default function App() {
         <Quote />
       </main>
       <Footer />
-      <Stage3D models={['carton']} />
+      <Stage3D models={['carton', 'tuna', 'prawn']} />
       <StickyRfq />
       <Loader />
     </>
