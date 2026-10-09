@@ -1,4 +1,6 @@
 import Film from './film/Film'
+import Quality from './sections/Quality'
+import './sections/sections.css'
 import Header from './ui/Header'
 import Loader from './ui/Loader'
 import StickyRfq from './ui/StickyRfq'
@@ -15,6 +17,7 @@ export default function App() {
       <Header />
       <main id="main">
         <Film />
+        <Quality />
       </main>
       <StickyRfq />
       <Loader />
