@@ -6,7 +6,7 @@ export default function Loader() {
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => {
     const el = ref.current!
-    const poster = document.querySelector<HTMLImageElement>('.stage-media')
+    const poster = document.querySelector<HTMLImageElement>('#story img')
     const ready = Promise.all([
       document.fonts.ready,
       poster ? poster.decode().catch(() => undefined) : Promise.resolve(),
