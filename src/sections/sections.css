@@ -106,3 +106,60 @@
     margin-top: 0;
   }
 }
+
+/* B5 People */
+.people {
+  overflow: hidden;
+  min-height: 120vh;
+}
+.people-bg {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: 60% 50%;
+}
+.people-inner {
+  position: relative;
+  isolation: isolate;
+}
+.people-inner::before {
+  content: '';
+  position: absolute;
+  inset: -64px -100vw;
+  z-index: -1;
+  background: linear-gradient(to right, rgb(14 20 23 / 0.82), rgb(14 20 23 / 0.55) 55%, rgb(14 20 23 / 0));
+}
+.partners {
+  list-style: none;
+  margin: 24px 0 72px;
+  padding: 0;
+}
+.partner {
+  font-size: min(7.5vw, 120px);
+  line-height: 1.05;
+}
+.vm {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 32em));
+  gap: 48px;
+}
+.vm p {
+  margin: 12px 0 0;
+}
+.people-c3 {
+  margin-top: 64px;
+  color: var(--glaze);
+}
+@media (max-width: 767px) {
+  .vm {
+    grid-template-columns: 1fr;
+  }
+  .partner {
+    font-size: 12vw;
+  }
+  .people-inner::before {
+    background: rgb(14 20 23 / 0.7);
+  }
+}
