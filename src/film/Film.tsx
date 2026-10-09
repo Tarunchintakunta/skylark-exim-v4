@@ -5,6 +5,7 @@ import { onTick } from '../engine/clock'
 import { isMobile, pickTier } from '../engine/env'
 import { scrollStore } from '../engine/scrollStore'
 import { VideoPool } from './VideoPool'
+import Captions from './Captions'
 import './film.css'
 
 const tier = pickTier()
@@ -101,6 +102,7 @@ export default function Film({ children }: { children?: ReactNode }) {
             tabIndex={-1}
           />
         ))}
+        <Captions />
         {children}
       </div>
     </section>
