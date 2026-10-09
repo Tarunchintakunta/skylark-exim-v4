@@ -1,5 +1,6 @@
 import Film from './film/Film'
 import Quality from './sections/Quality'
+import Markets from './sections/Markets'
 import People from './sections/People'
 import Quote from './sections/Quote'
 import Footer from './sections/Footer'
@@ -21,6 +22,7 @@ export default function App() {
       <main id="main">
         <Film />
         <Quality />
+        <Markets />
         <People />
         <Quote />
       </main>

@@ -317,3 +317,85 @@
     padding-bottom: 96px;
   }
 }
+
+/* B4 Markets */
+.markets-stage {
+  min-height: 100vh;
+  display: grid;
+  grid-template-columns: minmax(260px, 0.42fr) 1fr;
+  gap: clamp(24px, 4vw, 64px);
+  align-items: center;
+  padding: calc(var(--header-h) + 24px) var(--gutter) 48px;
+  background: var(--ink);
+}
+.markets-copy {
+  order: 2;
+}
+.markets-map {
+  order: 1;
+  position: relative;
+  margin: 0;
+}
+.markets-map img,
+.markets-map svg {
+  width: 100%;
+  height: auto;
+}
+.markets-map svg {
+  position: absolute;
+  inset: 0;
+}
+.route {
+  fill: none;
+  stroke: var(--marigold);
+  stroke-width: 2;
+  stroke-linecap: round;
+}
+.route-end {
+  fill: var(--marigold);
+}
+.origin {
+  fill: var(--frost);
+  stroke: var(--marigold);
+  stroke-width: 3;
+}
+.markets-lede {
+  color: var(--glaze);
+  margin: 0;
+}
+.markets-count {
+  margin: 24px 0 8px;
+  color: var(--glaze);
+}
+.markets-count-n {
+  font-family: var(--font-display);
+  font-size: 56px;
+  color: var(--frost);
+  margin-right: 8px;
+}
+.market-list {
+  list-style: none;
+  columns: 2;
+  padding: 0;
+  margin: 16px 0 0;
+}
+.market {
+  padding: 4px 0;
+  color: var(--steel);
+  transition: color 0.4s var(--ease);
+  font-size: 17px;
+}
+.market.is-on {
+  color: var(--frost);
+}
+@media (max-width: 1023px) {
+  .markets-stage {
+    grid-template-columns: 1fr;
+  }
+  .markets-copy {
+    order: 1;
+  }
+  .markets-map {
+    order: 2;
+  }
+}
