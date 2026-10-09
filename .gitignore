@@ -9,3 +9,4 @@ playwright-report/
 *.blend1
 .DS_Store
 .omc/
+src/config/media.json
