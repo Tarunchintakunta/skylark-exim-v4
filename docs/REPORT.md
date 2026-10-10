@@ -62,6 +62,12 @@ PERF_URL=<url> npx playwright test
 | 12  | S5 pond       | v-pond   | 216           | 11.1    | PASS                                                                  | coast 0.53 → dissolve | 2156 / 1464 / 638    | #57 |
 | 13  | S4 sea        | v-sea    | 264           | 8.4     | PASS                                                                  | horizon 0.944         | 2093 / 1491 / 654    | #55 |
 
+**Product turntables (S10 fallbacks, PR #66).** prod-tuna and prod-prawn are rendered at full 1080p: 120 frames each, a 360° loop on a crushed-ice slab under a studio HDRI, about 5.5 s/frame. G-PROD-2/3/4 and G-SCENE-8 pass, and check-clip passes. The sizes are 2014 / 1168 / 686 KB (tuna) and 2031 / 1178 / 696 KB (prawn). They are **not wired into B2**, because the live GLBs still pass G-PROD.
+
+**Swordfish** (A-PROD-SWORDFISH) was modelled procedurally and reviewed over 4 rounds. Proportions pass, but at 100 % zoom it reads as clean CG: airbrushed skin, hard seams where the fins meet the body, and a bead-like eye. That fails G-PROD-2 and G-PROD-4, so per ASSET_LIBRARY §7 swordfish stays a text entry and no swordfish turntable was rendered (`docs/reviews/swordfish-final.md`).
+
+**Every render in `scripts/scenes.sh` is now done**, except prod-swordfish, which is intentionally not rendered because its model failed.
+
 **Main fixes per scene.** The details are in each scene PR's "full 1080p" comment and in `docs/reviews/*-full-final.md`.
 
 - **table:**
@@ -153,9 +159,10 @@ PERF_URL=<url> npx playwright test
    - pond: static sea (the sunrise bridge relies on it).
    - sea: simple wheelhouse.
 5. **Table opening:** it is a high-angle macro, not the storyboard's pure top-down.
-6. **Mobile video quality:** the 960 tier is softer at ≤ 700 KB (crf 30–37), which is visible on fine textures.
-7. **Branch protection is not enabled.** GitHub returned a 403 on a private repo without Pro, so the rules were followed manually.
-8. **Night-run mistake:** `pkill` stopped another project's preview server on port 4173 (pid 86792). It is logged in NIGHT_LOG.
+6. **Product turntables:** at side-on angles the mobile centre crop shows only the middle of these long products. If the turntables are ever swapped in, they need `object-position` or letterboxing.
+7. **Mobile video quality:** the 960 tier is softer at ≤ 700 KB (crf 30–37), which is visible on fine textures.
+8. **Branch protection is not enabled.** GitHub returned a 403 on a private repo without Pro, so the rules were followed manually.
+9. **Night-run mistake:** `pkill` stopped another project's preview server on port 4173 (pid 86792). It is logged in NIGHT_LOG.
 
 ## 6. [CONFIRM] questions and needs-tarun
 
@@ -175,9 +182,9 @@ These are unchanged from the morning; the site stays neutral on each.
 
 ## 7. Merge order (bottom first, "Create a merge commit")
 
-**#33 → #34 → #35 → #36 → #37 → #38 → #39 → #40 → #41 → #42 → #43 → #44 → #45 → #46 → #47 → #48 → #51 → #49 → #50 → #52 → #53 → #54 → #55 → #56 → #57 → #58 → #59 → #60 → #63 → #64 → #61**
+**#33 → #34 → #35 → #36 → #37 → #38 → #39 → #40 → #41 → #42 → #43 → #44 → #45 → #46 → #47 → #48 → #51 → #49 → #50 → #52 → #53 → #54 → #55 → #56 → #57 → #58 → #59 → #60 → #63 → #64 → #66 → #61**
 
-Out-of-number spots: #51 goes before #49, #52 after #50, and #63 and #64 sit between #60 and #61. The full table is in `docs/STACK.md`. Today's renders were merged forward through the stack branches (merge commits named "stack update"). Each PR's diff against its base is still only its own work.
+Out-of-number spots: #51 goes before #49, #52 after #50, and #63, #64 and #66 sit between #60 and #61. The full table is in `docs/STACK.md`. Today's renders were merged forward through the stack branches (merge commits named "stack update"). Each PR's diff against its base is still only its own work.
 
 ## 8. Time per area
 
@@ -190,3 +197,4 @@ Out-of-number spots: #51 goes before #49, #52 after #50, and #63 and #64 sit bet
 | Day: encode, equalise, dissolves, OG, stack merges                        | as each scene landed, plus 17:20–17:40                          |
 | Day: mobile stall/weight investigation, 700 KB tier                       | 17:40–17:55 · 15 min                                            |
 | Day: final suite, Lighthouse ×2, report                                   | 17:55–18:15 · 20 min                                            |
+| Day: product turntables (tuna, prawn) + swordfish attempt                 | 18:30–19:30 · ~1 h, two workers in parallel                     |
