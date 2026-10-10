@@ -447,13 +447,13 @@
   grid-area: 1 / 1;
   white-space: nowrap;
   font-size: min(16vw, 260px);
-  color: var(--glaze);
+  color: var(--steel); /* 4.7:1 on frost — glaze was 1.4:1 */
   transform: translate3d(110vw, 0, 0);
   will-change: transform;
 }
 .nf-n {
   color: transparent;
-  -webkit-text-stroke: 1.5px var(--steel);
+  -webkit-text-stroke: 1.5px var(--lagoon);
 }
 .nf-copy {
   position: absolute;
