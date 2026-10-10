@@ -26,15 +26,9 @@
   z-index: 2;
 }
 .wordmark {
-  font-family: var(--font-display);
-  font-size: 24px;
-  font-weight: 400;
-  letter-spacing: -0.01em;
-}
-.wordmark-exim {
-  font-style: normal;
-  font-weight: 300;
-  opacity: 0.8;
+  display: block;
+  height: 26px;
+  width: auto;
 }
 .site-header-actions {
   display: flex;
@@ -123,7 +117,7 @@
     display: none;
   }
   .wordmark {
-    font-size: 20px;
+    height: 22px;
   }
 }
 .loader {
@@ -138,7 +132,7 @@
     visibility 0.8s;
 }
 .loader-mark {
-  font-size: clamp(32px, 5vw, 56px);
+  height: clamp(36px, 6vw, 62px);
   opacity: 0.6;
   transition: transform 0.8s var(--ease);
 }
