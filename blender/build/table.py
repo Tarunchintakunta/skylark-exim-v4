@@ -19,6 +19,8 @@ REPO = '/Users/tarunchintakunta/Desktop/2.0/skylark-exim-v4'
 sys.path.insert(0, REPO + '/assets-src/blender/lib')
 import sklib  # noqa: E402
 from sklib import _n, _l, _math, _mix, _maprange, _noise  # noqa: E402
+sys.path.insert(0, REPO + '/assets-src/blender/build')
+import bridge_frost as bridge_frost_mod  # noqa: E402
 
 PRAWN_SCAN = REPO + '/assets-src/scans/green-tiger-prawn.glb'   # CC0 ffish.asia (docs/ASSETS.md A-PROD-PRAWN)
 D2R = math.pi / 180
@@ -217,8 +219,8 @@ def tuna_mat():
     _l(nt, tc.outputs['Object'], wv.inputs['Vector'])
     my = _maprange(nt, wv.outputs['Fac'], 0.9, 1.0, 0.0, 0.14, -450, 350)
     nv = _noise(nt, tc.outputs['Object'], 60.0, 4.0, 0.6, -650, 200)
-    flesh = _mix(nt, _maprange(nt, nv.outputs['Fac'], 0.3, 0.7, 0, 1, -450, 200), (0.26, 0.012, 0.03), (0.42, 0.04, 0.06), 'MIX', -350, 300)
-    flesh = _mix(nt, my, flesh, (0.55, 0.2, 0.22), 'MIX', -250, 350)
+    flesh = _mix(nt, _maprange(nt, nv.outputs['Fac'], 0.3, 0.7, 0, 1, -450, 200), (0.16, 0.006, 0.018), (0.27, 0.02, 0.035), 'MIX', -350, 300)
+    flesh = _mix(nt, my, flesh, (0.38, 0.12, 0.13), 'MIX', -250, 350)
     fl = _noise(nt, tc.outputs['Object'], 900.0, 2.0, 0.5, -650, 600)            # pepper/sesame flecks
     fk = _maprange(nt, fl.outputs['Fac'], 0.62, 0.68, 0.0, 1.0, -450, 600)
     seared = _mix(nt, fk, (0.17, 0.09, 0.05), (0.02, 0.015, 0.01), 'MIX', -250, 600)
@@ -258,7 +260,7 @@ def frost_bridge_mat():
     _l(nt, v1.outputs['Color'], h1.inputs[0])
     h = _math(nt, 'MULTIPLY_ADD', h1.outputs[0], 0.35, x=-650, y=150, c=fz.outputs['Fac'])
     h = _math(nt, 'MULTIPLY', h, dens, x=-450, y=150)
-    col = _mix(nt, _maprange(nt, h, 0.25, 0.75, 0, 1, -450, 450), (0.62, 0.68, 0.74), (0.98, 0.985, 0.99), 'MIX', -200, 450)
+    col = _mix(nt, _maprange(nt, h, 0.25, 0.75, 0, 1, -450, 450), (0.5, 0.56, 0.64), (0.99, 0.99, 0.995), 'MIX', -200, 450)
     _l(nt, col, b.inputs['Base Color'])
     _l(nt, _maprange(nt, h1.outputs[0], 0.0, 1.0, 0.03, 0.5, -350, -150), b.inputs['Roughness'])
     b.inputs['Subsurface Weight'].default_value = 0.5
@@ -267,7 +269,7 @@ def frost_bridge_mat():
     b.inputs['Specular IOR Level'].default_value = 0.6
     bp = _n(nt, 'ShaderNodeBump', 800, -300)
     bp.inputs['Strength'].default_value = 1.0
-    bp.inputs['Distance'].default_value = 0.0006
+    bp.inputs['Distance'].default_value = 0.002
     _l(nt, h, bp.inputs['Height'])
     _l(nt, bp.outputs[0], b.inputs['Normal'])
     return m
@@ -941,39 +943,7 @@ def build_kitchen():
 
 # -------------------------------------------------------------------------------------------------- BRIDGE_FROST
 def bridge_frost():
-    """BRIDGE_FROST (shared with reefer.blend f1): frosted white poly-bag patch, flat, centred on the collection
-    origin, + single soft area light 1 m above (6500 K). Camera: lens 100, 0.12 m above, looking -Z, f/2.8."""
-    bc = sklib.collection('BRIDGE_FROST', parent=False)
-    bm = bmesh.new()
-    nx, ny = 48, 40
-    W, H = 0.21, 0.15
-    vs = []
-    for j in range(ny + 1):
-        row = []
-        for i in range(nx + 1):
-            x, y = (i / nx - 0.5) * W, (j / ny - 0.5) * H
-            e = max(0.0, max(abs(x) / (W / 2), abs(y) / (H / 2)) - 0.45) / 0.55     # flat centre, crumpled rim
-            z = -0.003 * e * e + 0.004 * e * (math.sin(x * 130 + y * 70) * math.sin(y * 150 - x * 40)) * e * math.sin(x * 140 + y * 90)
-            row.append(bm.verts.new((x, y, z)))
-        vs.append(row)
-    for j in range(ny):
-        for i in range(nx):
-            bm.faces.new((vs[j][i], vs[j][i + 1], vs[j + 1][i + 1], vs[j + 1][i]))
-    me = bpy.data.meshes.new('BRIDGE_FROST_patch')
-    bm.to_mesh(me)
-    bm.free()
-    me.shade_smooth()
-    me.materials.append(frost_bridge_mat())
-    ob = bpy.data.objects.new('BRIDGE_FROST_patch', me)
-    bc.objects.link(ob)
-    L = bpy.data.lights.new('BRIDGE_FROST_light', 'AREA')
-    L.shape, L.size, L.size_y = 'RECTANGLE', 0.6, 0.6
-    L.color = sklib.kelvin_rgb(6500)
-    L.energy = 14.0
-    lo = bpy.data.objects.new('BRIDGE_FROST_light', L)
-    lo.location = (0, 0, 1.0)
-    bc.objects.link(lo)
-    return bc
+    return bridge_frost_mod.build()
 
 
 # ------------------------------------------------------------------------------------------------------- lights

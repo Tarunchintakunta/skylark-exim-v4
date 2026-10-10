@@ -281,7 +281,13 @@ def leaf_mat(name, c1, c2, cut=True):
     ao = _n(nt, 'ShaderNodeAmbientOcclusion', -400, 600, samples=8)
     ao.inputs['Distance'].default_value = 1.2
     col = _mix(nt, _maprange(nt, ao.outputs['AO'], 0.3, 1.0, 0.55, 0.0, -150, 600), col, (0.01, 0.025, 0.008), 'MIX', 100, 400)
-    _l(nt, col, b.inputs['Base Color'])
+    sepn = _n(nt, 'ShaderNodeSeparateXYZ', -150, 750)
+    _l(nt, geo.outputs['Normal'], sepn.inputs[0])
+    und = _maprange(nt, sepn.outputs['Z'], -0.7, 0.6, 0.35, 1.0, 0, 750)
+    vmu = _n(nt, 'ShaderNodeVectorMath', 250, 500, operation='SCALE')
+    _l(nt, col, vmu.inputs[0])
+    _l(nt, und, vmu.inputs['Scale'])
+    _l(nt, vmu.outputs[0], b.inputs['Base Color'])
     b.inputs['Roughness'].default_value = 0.6
     b.inputs['Subsurface Weight'].default_value = 0.0
     if cut:   # leaf clusters on cards: voronoi blobs
@@ -435,7 +441,7 @@ def water_mat(name, deep, shallow, rough=0.06):
     _l(nt, _mix(nt, _maprange(nt, nz.outputs['Fac'], 0.35, 0.65, 0, 1, -400, 200), deep, shallow, 'MIX', -150, 200),
        b.inputs['Base Color'])
     b.inputs['Roughness'].default_value = rough
-    b.inputs['Specular IOR Level'].default_value = 0.12 if rough > 0.3 else 0.3
+    b.inputs['Specular IOR Level'].default_value = 0.5
     w = _n(nt, 'ShaderNodeTexWave', -650, -200, wave_type='BANDS')
     w.inputs['Scale'].default_value = 0.08
     w.inputs['Distortion'].default_value = 6.0
@@ -451,9 +457,9 @@ def water_mat(name, deep, shallow, rough=0.06):
     return m
 
 
-M['pond'] = water_mat('pond_water', (0.03, 0.07, 0.035), (0.06, 0.12, 0.045), 0.5)
-M['pond2'] = water_mat('pond_water_b', (0.05, 0.08, 0.035), (0.09, 0.12, 0.045), 0.55)
-M['sea'] = water_mat('sea_water', (0.008, 0.04, 0.07), (0.02, 0.09, 0.12), 0.18)
+M['pond'] = water_mat('pond_water', (0.015, 0.04, 0.035), (0.04, 0.09, 0.06), 0.05)
+M['pond2'] = water_mat('pond_water_b', (0.03, 0.06, 0.035), (0.07, 0.11, 0.05), 0.07)
+M['sea'] = water_mat('sea_water', (0.006, 0.04, 0.075), (0.012, 0.075, 0.11), 0.1)
 M['sand'] = haze(sklib.sand().copy())
 M['sand'].name = 'sand_hazed'
 M['bund'] = haze(sklib.pbr('bund_mud', 'brown_mud_03', tint=(0.36, 0.30, 0.20), contrast=0.6, wear=0.0, scale=3.0))
@@ -996,27 +1002,31 @@ def truck_body():
         if z > 0:
             X *= 0.94
             if y < 0:
-                Y += 0.30      # raked front, top set back
+                Y += 0.42      # raked front, top set back
         v.co = (X, Y, Z)
     bmesh.ops.subdivide_edges(bmc, edges=bmc.edges[:], cuts=2, use_grid_fill=True)
     cabo = bm_obj('cab_shell', bmc, T, [M['cab']])
     bv = cabo.modifiers.new('Bevel', 'BEVEL')
-    bv.width, bv.segments, bv.limit_method, bv.angle_limit = 0.16, 5, 'ANGLE', 30 * D2R
+    bv.width, bv.segments, bv.limit_method, bv.angle_limit = 0.21, 6, 'ANGLE', 30 * D2R
     bv.use_clamp_overlap = True
     cabo.data.shade_smooth()
     cabo.modifiers.new('WeightedNormal', 'WEIGHTED_NORMAL').keep_sharp = True
     sklib.apply_mods(cabo)
     sklib.box_uv(cabo)
-    rake = math.atan2(0.30, CZ1 - CZ0)
+    rake = math.atan2(0.42, CZ1 - CZ0)
 
     def front_y(z):   # y of the raked front face at height z
         t = (z - CZ0) / (CZ1 - CZ0)
-        return CY0 + 0.30 * t
+        return CY0 + 0.42 * t
 
     # windscreen (glass, proud of the face) with black gasket, split by a thin centre pillar
-    for name, z0, z1, w, mat, prot in (('cab_ws_gasket', 2.02, 2.88, 2.22, M['rubber'], 0.008), ('cab_windscreen', 2.05, 2.85, 2.16, M['glass'], 0.016)):
+    for name, z0, z1, w, mat, prot in (('cab_ws_gasket', 2.0, 2.84, 2.06, M['rubber'], 0.008), ('cab_windscreen', 2.03, 2.81, 1.98, M['glass'], 0.016)):
         zc = (z0 + z1) / 2
         o = box(name, T, mat, (0, front_y(zc) - prot, zc), (w, 0.02, z1 - z0), 0.01, rot=(-rake, 0, 0))
+    for sx in (-1, 1):   # black A-pillars and corner deflectors
+        box('cab_apillar_%d' % sx, T, M['cab_dark'], (sx * 1.02, front_y(2.42) - 0.02, 2.42), (0.07, 0.03, 0.86), 0.01, rot=(-rake, 0, 0))
+        box('cab_deflector_%d' % sx, T, M['cab_dark'], (sx * 1.16, front_y(2.0) + 0.12, 2.0), (0.05, 0.22, 1.5), 0.02, rot=(-rake, 0, sx * 0.35))
+    box('cab_grille_frame', T, M['stainless'], (0, front_y(1.63) - 0.03, 1.63), (1.74, 0.03, 0.6), 0.015, rot=(-rake, 0, 0))
     # lower fascia, grille with slats, headlamps, indicators
     zc = 1.62
     box('cab_fascia', T, M['cab_dark'], (0, front_y(zc) - 0.012, zc), (2.12, 0.03, 0.75), 0.015, rot=(-rake, 0, 0))
@@ -1027,7 +1037,7 @@ def truck_body():
     for sx in (-0.81, 0.81):
         bbox_bm(bmg, sx - 0.02, sx + 0.02, -0.03, 0.03, 1.37, 1.88)
     go = bm_obj('cab_grille', bmg, T, [sklib.painted_metal((0.16, 0.16, 0.17), 0.25, contrast=0.4)], 0.006)
-    go.location = (0, front_y(1.62) - 0.045, 0)
+    go.location = (0, front_y(1.62) - 0.055, 0)
     go.rotation_euler.x = rake * 0.0
     for sx in (-1, 1):
         box('cab_headlamp_%d' % sx, T, M['lamp'], (sx * 0.9, front_y(1.55) - 0.04, 1.55), (0.30, 0.05, 0.2), 0.02, rot=(-rake, 0, 0))
@@ -1044,7 +1054,7 @@ def truck_body():
     box('cab_plate', T, M['plate'], (0, CY0 - 0.215, 0.92), (0.52, 0.012, 0.13), 0.004)
     box('cab_tow', T, M['chassis'], (0, CY0 - 0.21, 0.76), (0.18, 0.04, 0.08), 0.01)
     # sun visor over the windscreen
-    box('cab_visor', T, M['cab_dark'], (0, front_y(3.0) - 0.16, 2.97), (2.26, 0.34, 0.03), 0.01, rot=(-8 * D2R, 0, 0))
+    box('cab_visor', T, M['cab_dark'], (0, front_y(3.0) - 0.16, 2.97), (2.06, 0.34, 0.03), 0.01, rot=(-8 * D2R, 0, 0))
     # wipers
     for sx in (-0.55, 0.35):
         o = box('cab_wiper_%g' % sx, T, M['rubber'], (sx, front_y(2.18) - 0.035, 2.2), (0.85, 0.015, 0.02), 0.003)
@@ -1146,7 +1156,7 @@ box_roof('truck_parked_roof', S.collection, VAR)
 rear_doors('parked', S.collection, VAR, False)
 
 # cut-away roof: hidden while the camera flies through the body, back once the camera is out over the cab
-for f, h in ((1, True), (64, True), (65, False)):
+for f, h in ((1, True), (60, True), (61, False)):
     HERO_ROOF.hide_render = HERO_ROOF.hide_viewport = h
     HERO_ROOF.keyframe_insert('hide_render', frame=f)
     HERO_ROOF.keyframe_insert('hide_viewport', frame=f)
@@ -1160,6 +1170,113 @@ for f in ((0, 1, 2, 3), (3, 2, 5, 4), (0, 3, 4), (1, 5, 2), (0, 4, 5, 1)):
 bmesh.ops.recalc_face_normals(bmk, faces=bmk.faces[:])
 chock = bm_obj('wheel_chock', bmk, YARD, [grimed(sklib.plastic((0.75, 0.55, 0.03), 0.5, name='chock_yellow'), 'chock_g', 0.0, 0.25)], 0.01)
 chock.location = (1.13, -0.31 + REAR_AX - 0.205, 0.0)
+
+
+# ======================================================================================================== yard life
+def build_yard_extras():
+    Y = C('A-YARD-LIFE')
+    crate1 = C('A-CRATE-1', False)
+    sklib.crate((0.05, 0.22, 0.55), 'crate1', crate1, 0.4)
+    pal = sklib.pallet_mesh('A-PALLET.mesh')
+    palc = C('A-PALLET', False)
+    palc.objects.link(pal)
+    # pallet loaded with 2x2x3 crates
+    cp = C('A-CRATE-PALLET', False)
+    sklib.instance(palc, (0, 0, 0), 0.0, 'cp_pallet', cp)
+    for i, x in enumerate((-0.3, 0.3)):
+        for j, y in enumerate((-0.21, 0.21)):
+            for k in range(3):
+                sklib.instance(crate1, (x, y, 0.145 + k * 0.245), 0.0, 'cp_c%d%d%d' % (i, j, k), cp)
+    # empty pallet stacks + loaded pallets near the west docks
+    rng = random.Random(12)
+    for n, (x, y, h) in enumerate([(-24.0, -3.0, 7), (-24.0, -4.4, 5), (-22.4, -3.1, 9)]):
+        for k in range(h):
+            sklib.instance(palc, (x + rng.uniform(-0.03, 0.03), y, k * 0.145), rng.uniform(-0.03, 0.03), 'pstack_%d_%d' % (n, k), Y)
+    for n, (x, y, r) in enumerate([(-12.0, -3.2, 0.02), (-12.0, -4.6, -0.04), (11.8, -3.0, 0.03), (13.3, -3.1, 0.0)]):
+        sklib.instance(cp, (x, y, 0), r, 'cpal_%d' % n, Y)
+    # forklift (LPG counterbalance) carrying a loaded pallet toward the west dock
+    fk = C('A-FORKLIFT', False)
+    body = grimed(sklib.painted_metal((0.75, 0.40, 0.03), 0.4, 0.3), 'forklift_paint', 0.0, 0.7)
+    bm = bmesh.new()
+    bbox_bm(bm, -0.55, 0.55, -0.55, 1.0, 0.25, 1.05, 0)
+    bbox_bm(bm, -0.6, 0.6, 0.95, 1.5, 0.2, 1.2, 0)            # counterweight
+    bbox_bm(bm, -0.25, 0.25, 0.35, 0.75, 1.05, 1.15, 1)        # seat base
+    bbox_bm(bm, -0.24, 0.24, 0.62, 0.72, 1.15, 1.6, 1)         # seat back
+    for x in (-0.5, 0.5):
+        for y in (-0.45, 0.95):
+            bbox_bm(bm, x - 0.03, x + 0.03, y - 0.03, y + 0.03, 1.05, 2.15, 2)
+    for x in (-0.5, 0.0, 0.5):
+        bbox_bm(bm, x - 0.03, x + 0.03, -0.48, 0.98, 2.12, 2.18, 2)
+    bbox_bm(bm, -0.53, 0.53, -0.48, -0.42, 2.12, 2.18, 2)
+    bbox_bm(bm, -0.53, 0.53, 0.92, 0.98, 2.12, 2.18, 2)
+    cyl_bm(bm, (0, -0.25, 1.45), 0.16, 0.03, 'Z', 16, 1)
+    for x in (-0.36, 0.36):
+        bbox_bm(bm, x - 0.05, x + 0.05, -0.82, -0.66, 0.08, 2.35, 3)   # mast channels
+    bbox_bm(bm, -0.45, 0.45, -0.9, -0.82, 0.1, 0.75, 3)              # carriage
+    for x in (-0.3, 0.3):
+        bbox_bm(bm, x - 0.06, x + 0.06, -2.05, -0.9, 0.06, 0.11, 3)    # forks
+        bbox_bm(bm, x - 0.06, x + 0.06, -0.96, -0.9, 0.06, 0.7, 3)
+    for x in (-0.5, 0.5):
+        cyl_bm(bm, (x, -0.4, 0.3), 0.3, 0.22, 'X', 20, 4)
+        cyl_bm(bm, (x, 1.15, 0.24), 0.24, 0.18, 'X', 20, 4)
+    cyl_bm(bm, (0, 1.2, 1.75), 0.15, 0.7, 'Z', 16, 2)                 # LPG bottle
+    bm_obj('forklift.mesh', bm, fk, [body, M['rubber'], M['chassis'], M['galv'], M['tyre']], 0.012)
+    sklib.instance(cp, (0, -1.45, 0.115), 0.0, 'fk_load', fk)
+    sklib.instance(fk, (-5.0, -9.6, 0), math.pi + 0.15, 'A-FORKLIFT.inst', Y)
+    # pallet jack with a loaded pallet, pulled by a worker
+    pj = C('A-PALLETJACK', False)
+    bm = bmesh.new()
+    for y in (-0.28, 0.28):
+        bbox_bm(bm, 0.0, 1.15, y - 0.08, y + 0.08, 0.03, 0.08, 0)
+    bbox_bm(bm, -0.25, 0.02, -0.3, 0.3, 0.03, 0.35, 0)
+    cyl_bm(bm, (-0.12, 0, 0.09), 0.09, 0.12, 'Y', 16, 1)
+    bm_obj('palletjack.mesh', bm, pj, [sklib.painted_metal((0.55, 0.06, 0.04), 0.4, 0.3), M['tyre']], 0.006)
+    bmh = bmesh.new()
+    cyl_bm(bmh, (0, 0, 0.6), 0.02, 1.2, 'Z', 8)
+    bbox_bm(bmh, -0.02, 0.02, -0.18, 0.18, 1.18, 1.22)
+    ho = bm_obj('palletjack.handle', bmh, pj, [M['chassis']], None)
+    ho.location = (-0.15, 0, 0.3)
+    ho.rotation_euler.y = -0.75
+    sklib.instance(cp, (0.6, 0, 0.09), 0.0, 'pj_load', pj)
+    sklib.instance(pj, (8.6, -5.75, 0), 0.0, 'A-PALLETJACK.inst', Y)
+    # parked mini-truck (Tata Ace-like) and a hatchback by the west wall
+    mt = C('A-VEH-MINITRUCK', False)
+    bm = bmesh.new()
+    bbox_bm(bm, -0.75, 0.75, -1.9, -0.6, 0.45, 1.85, 0)
+    bbox_bm(bm, -0.7, 0.7, -1.95, -1.6, 1.15, 1.75, 1)
+    bbox_bm(bm, -0.8, 0.8, -0.55, 1.75, 0.6, 0.7, 2)
+    for sx in (-1, 1):
+        bbox_bm(bm, sx * 0.8 - 0.03, sx * 0.8 + 0.03, -0.55, 1.75, 0.7, 1.05, 2)
+    bbox_bm(bm, -0.8, 0.8, 1.72, 1.78, 0.7, 1.05, 2)
+    bbox_bm(bm, -0.8, 0.8, -0.58, -0.52, 0.7, 1.6, 2)
+    for sx in (-0.68, 0.68):
+        for y in (-1.3, 1.1):
+            cyl_bm(bm, (sx, y, 0.27), 0.27, 0.17, 'X', 18, 3)
+    bm_obj('minitruck.mesh', bm, mt, [grimed(sklib.painted_metal((0.80, 0.80, 0.78), 0.3, 0.2), 'mt_white', 0.1, 0.9),
+                                       M['glass'], M['galv'], M['tyre']], 0.03)
+    car = C('A-VEH-CAR', False)
+    bm = bmesh.new()
+    bbox_bm(bm, -0.85, 0.85, -1.9, 1.9, 0.3, 0.95, 0)
+    bbox_bm(bm, -0.78, 0.78, -0.9, 1.2, 0.95, 1.45, 1)
+    for sx in (-0.76, 0.76):
+        for y in (-1.25, 1.25):
+            cyl_bm(bm, (sx, y, 0.3), 0.3, 0.2, 'X', 18, 2)
+    bm_obj('car.mesh', bm, car, [grimed(sklib.painted_metal((0.45, 0.46, 0.48), 0.25, 0.2), 'car_silver', 0.1, 0.7), M['glass'], M['tyre']], 0.12)
+    sklib.instance(mt, (-28.0, -38.0, 0), 0.08, 'minitruck_parked', Y)
+    sklib.instance(car, (-24.5, -40.5, 0), 0.03, 'car_parked', Y)
+    sklib.instance(car, (-21.0, -40.3, 0), -0.05, 'car_parked2', Y)
+    # puddles (wet, reflective patches) around the drains and the dock apron
+    pm = decal_mat('puddle', (0.02, 0.02, 0.02), 0.95, 0.9, 0.45, 0.55, rough=0.03)
+    for n, (x, y, sx, sy) in enumerate([(-6.0, -6.5, 2.4, 1.6), (6.8, -7.2, 3.0, 1.8), (-13.6, -29.5, 2.2, 1.5), (3.0, -15.3, 4.0, 1.2),
+                                        (14.5, -44.0, 3.5, 2.0)]):
+        decal('puddle_%d' % n, Y, pm, (x, y, 0.0035), (sx, sy), rng.uniform(0, 3))
+    oil = bpy.data.materials['oil_stain']
+    for n in range(10):
+        decal('oil_x%d' % n, Y, oil, (rng.uniform(-28, 28), rng.uniform(-42, -6), 0.0025), (rng.uniform(0.5, 1.6), rng.uniform(0.4, 1.2)),
+              rng.uniform(0, 3))
+
+
+build_yard_extras()
 
 
 # ======================================================================================================== cargo
@@ -1325,11 +1442,14 @@ def tree_low(name, seed, height=7.0):
     cyl_bm(bm, (0, 0, height * 0.25), 0.18, height * 0.5, seg=6, r2=0.1)
     bm_obj(name + '.trunk', bm, c, [M['bark']], None)
     bmc = bmesh.new()
-    for k in range(3):
-        cc = Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-0.3, 0.3))) * height * 0.15 + Vector((0, 0, height * 0.68))
-        bmesh.ops.create_icosphere(bmc, subdivisions=1, radius=height * rng.uniform(0.22, 0.3),
-                                   matrix=Matrix.Translation(cc) @ Matrix.Diagonal((1, 1, 0.8, 1)))
+    for k in range(6):
+        cc = Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-0.2, 0.4))) * height * 0.22 + Vector((0, 0, height * 0.66))
+        bmesh.ops.create_icosphere(bmc, subdivisions=2, radius=height * rng.uniform(0.17, 0.24),
+                                   matrix=Matrix.Translation(cc) @ Matrix.Diagonal((1, 1, 0.65, 1)))
+    for v in bmc.verts:
+        v.co += Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))) * height * 0.03
     cr = bm_obj(name + '.crown', bmc, c, [M['leaf_blob']], None, uv=False)
+    cr.data.shade_smooth()
     return c
 
 
@@ -1345,19 +1465,54 @@ ROAD_Y = -60.0
 
 
 def coast_x(y):
-    return 1450.0 + 0.45 * y
+    return 1150.0 + 0.5 * y
+
+
+from mathutils import noise as mnoise
+
+
+def land_h(x, y):
+    """Gentle inland relief (0-25 m), flat along the road, around the plant and on the coastal pond plain."""
+    m = min(1.0, max(0.0, (abs(y - ROAD_Y) - 25.0) / 120.0))
+    m *= min(1.0, max(0.0, (math.hypot(x, y + 20.0) - 90.0) / 150.0))
+    m *= min(1.0, max(0.0, (coast_x(y) - 760.0 - x) / 400.0))
+    h = (mnoise.fractal(Vector((x / 600.0, y / 600.0, 2.1)), 0.7, 2.0, 4) * 0.5 + 0.5) * 18.0
+    h += 7.0 * mnoise.noise(Vector((x / 170.0, y / 170.0, 4.2)))
+    return max(0.0, h) * m
+
+
+def tree_at(src, x, y, rz, name, coll, s, rng, lean=0.05):
+    e = sklib.instance(src, (x, y, land_h(x, y) - 0.15), rz, name, coll, s)
+    e.rotation_euler.x, e.rotation_euler.y = rng.gauss(0, lean), rng.gauss(0, lean)
+    return e
+
+
+def sway(e, rng, amount=0.018):
+    """Wind sway on a tree instance (noise on its tilt, own phase)."""
+    for i in (0, 1):
+        e.keyframe_insert('rotation_euler', index=i, frame=1)
+    for fc in sklib._fcurves(e):
+        if fc.data_path == 'rotation_euler' and fc.array_index in (0, 1):
+            m = fc.modifiers.new('NOISE')
+            m.strength, m.scale, m.phase = amount, rng.uniform(28, 45), rng.uniform(0, 100)
 
 
 def build_land():
-    # big land plane (outside the yard), slightly below yard level
-    ground_plane('land', -4000, 4500, -4000, 6000, -0.03, COAST, M['land'], cuts=1)
+    # land with gentle relief (flat at the road, plant and pond plain), slightly below yard level
+    bm = bmesh.new()
+    rows = grid_bm(bm, -4000, 4500, -4000, 6000, 170, 200, -0.03)
+    for v in bm.verts:
+        v.co.z = land_h(v.co.x, v.co.y) - 0.03
+    lo = bm_obj('land', bm, COAST, [M['land']], uv=False)
+    lo.data.shade_smooth()
     # sea east of the NE-SW coastline + beach band
     verts = [(coast_x(-4000), -4000, 0.25), (9000, -4000, 0.25), (9000, 6000, 0.25), (coast_x(6000), 6000, 0.25)]
     me = bpy.data.meshes.new('sea')
     me.from_pydata(verts, [], [(0, 1, 2, 3)])
     sea = sklib.new_obj('A-ENV-SEA', me, COAST)
     me.materials.append(M['sea'])
-    bv = [(coast_x(-4000) - 70, -4000, 0.02), (coast_x(-4000) + 15, -4000, 0.3), (coast_x(6000) + 15, 6000, 0.3), (coast_x(6000) - 70, 6000, 0.02)]
+    M['sea'].node_tree.nodes['Principled BSDF'].inputs['Specular IOR Level'].default_value = 0.28
+    bv = [(coast_x(-4000) - 40, -4000, 0.02), (coast_x(-4000) + 15, -4000, 0.3), (coast_x(6000) + 15, 6000, 0.3), (coast_x(6000) - 40, 6000, 0.02)]
     me2 = bpy.data.meshes.new('beach')
     me2.from_pydata(bv, [], [(0, 1, 2, 3)])
     beach = sklib.new_obj('A-ENV-BEACH', me2, COAST)
@@ -1399,11 +1554,11 @@ def build_land():
         b = bm_obj(cc.name + '.bund', bmb, cc, [M['bund']], 0.6, smooth_angle=60)
     rng = random.Random(9)
     k = 0
-    for i in range(22):
-        for j in range(26):
-            x = 620 + i * 66.5
+    for i in range(26):
+        for j in range(28):
+            x = 330 + i * 66.5
             y = -15 + j * 46.5
-            if x + 40 > coast_x(y) - 90 or (x < 900 and y < 120):
+            if x + 40 > coast_x(y) - 90 or x - 35 < coast_x(y) - 740:
                 continue
             if rng.random() < 0.08:
                 continue
@@ -1415,9 +1570,60 @@ def build_land():
 build_land()
 
 
+def house_coll(name, wall_col, roof, seed):
+    c = C(name, False)
+    rng = random.Random(seed)
+    w, d, h = rng.uniform(6, 9), rng.uniform(5, 8), rng.uniform(3.0, 3.4)
+    bm = bmesh.new()
+    bbox_bm(bm, -w / 2, w / 2, -d / 2, d / 2, 0, h)
+    if rng.random() < 0.5:      # second floor on part of it
+        bbox_bm(bm, -w / 2, 0.5, -d / 2, d / 2, h, 2 * h)
+    hw = bm_obj(name + '.walls', bm, c, [grimed(sklib.pbr('house_' + name, 'painted_plaster_wall', tint=wall_col, wear=0.4), 'house_g_' + name, 0, 1.2,
+                                                  (0.35, 0.28, 0.2), 0.6)], 0.03)
+    if roof == 'tile':
+        bmr = bmesh.new()
+        vs = [bmr.verts.new(p) for p in [(-w / 2 - 0.4, -d / 2 - 0.4, h), (w / 2 + 0.4, -d / 2 - 0.4, h), (w / 2 + 0.4, d / 2 + 0.4, h),
+                                          (-w / 2 - 0.4, d / 2 + 0.4, h), (-w / 2 - 0.4, 0, h + 1.6), (w / 2 + 0.4, 0, h + 1.6)]]
+        for f in ((0, 1, 5, 4), (3, 4, 5, 2), (0, 4, 3), (1, 2, 5)):
+            bmr.faces.new([vs[i] for i in f])
+        bm_obj(name + '.roof', bmr, c, [sklib.pbr('roof_tile', 'red_brick_03', tint=(0.45, 0.16, 0.08), wear=0.4, scale=0.5)])
+    else:
+        top = 2 * h if False else h
+        box(name + '.parapet', c, M['concrete'], (0, 0, h + 0.1), (w + 0.1, d + 0.1, 0.2), 0.02)
+    return c
+
+
+def build_villages():
+    V = C('A-VILLAGES')
+    cols = [(0.86, 0.84, 0.78), (0.82, 0.74, 0.52), (0.78, 0.62, 0.62), (0.62, 0.72, 0.78), (0.70, 0.78, 0.62)]
+    houses = [house_coll('A-HOUSE-%d' % i, cols[i % 5], 'tile' if i % 3 == 0 else 'flat', 50 + i) for i in range(8)]
+    rng = random.Random(61)
+    centres = [(-380, 260), (300, 470), (-220, -520), (650, -420), (-900, 700), (120, -900), (-1300, -200), (800, -1100), (-600, 1300), (420, 1500)]
+    n = 0
+    for cx, cy in centres:
+        ang = rng.uniform(0, 1.57)
+        for k in range(rng.randint(25, 45)):
+            x = cx + rng.gauss(0, 55)
+            y = cy + rng.gauss(0, 55)
+            if abs(y - ROAD_Y) < 14 or x > coast_x(y) - 150:
+                continue
+            e = sklib.instance(houses[rng.randrange(8)], (x, y, land_h(x, y) - 0.1), ang + rng.choice((0, 1.5708)) + rng.uniform(-0.08, 0.08),
+                               'house_%d' % n, V)
+            n += 1
+        for k in range(30):     # village palms / mango trees
+            x, y = cx + rng.gauss(0, 80), cy + rng.gauss(0, 80)
+            if abs(y - ROAD_Y) < 9 or x > coast_x(y) - 120:
+                continue
+            tree_at((PALMS + TREES_LO)[rng.randrange(6)], x, y, rng.uniform(0, 6.28), 'vtree_%d_%d' % (n, k), V, rng.uniform(0.8, 1.3), rng, 0.06)
+    print('houses', n)
+
+
+build_villages()
+
+
 def build_road():
     R = C('A-ENV-ROAD')
-    x0, x1 = -3000.0, 1500.0
+    x0, x1 = -3000.0, coast_x(ROAD_Y) - 60.0
     rng = random.Random(21)
     # gravel shoulders (wide strip) then asphalt with ragged worn edges on top
     ground_plane('road_shoulder', x0, x1, ROAD_Y - 5.2, ROAD_Y + 5.2, -0.01, R, M['gravel'], cuts=1)
@@ -1456,9 +1662,13 @@ def build_road():
                 y = ROAD_Y + side * off
                 if -36 < x < 36 and y > -48:
                     continue
+                if x > coast_x(y) - 100:
+                    continue
                 kind = PALMS if rng.random() < 0.35 else TREES_HI
-                sklib.instance(kind[rng.randrange(3)], (x + rng.uniform(-3, 3), y, 0), rng.uniform(0, 6.28), 'rtree_%d' % k, T,
-                               rng.uniform(0.8, 1.2))
+                e = tree_at(kind[rng.randrange(3)], x + rng.uniform(-3, 3), y, rng.uniform(0, 6.28), 'rtree_%d' % k, T,
+                            rng.uniform(0.7, 1.35), rng, 0.07 if kind is PALMS else 0.03)
+                if -150 < x < 350:
+                    sway(e, rng)
                 k += 1
         x += rng.uniform(9.0, 18.0)
     # power poles along the south shoulder with sagging wires
@@ -1471,7 +1681,7 @@ def build_road():
     for yy in (-0.8, 0.0, 0.8):
         cyl_bm(bmx, (0, yy, 8.6), 0.035, 0.16, seg=8)
     bm_obj('pole_arm', bmx, pole, [M['galv']], None)
-    px = list(range(-480, 1400, 42))
+    px = list(range(-480, int(coast_x(ROAD_Y)) - 100, 42))
     for i, xx in enumerate(px):
         sklib.instance(pole, (xx, ROAD_Y - 6.0, 0), 0.0, 'pole_%d' % i, T)
     wm = sklib.flat('wire', (0.02, 0.02, 0.02), rough=0.4)
@@ -1528,7 +1738,7 @@ def build_road():
             continue
         if abs(y - ROAD_Y) < 7:
             continue
-        inpond = (600 < x < 2100 and -40 < y < 1200)
+        inpond = (coast_x(y) - 760 < x and -40 < y < 1400)
         if inpond and rng3.random() < 0.85:
             continue
         # clustered villages/groves: keep trees where a low-frequency pattern is high
@@ -1541,12 +1751,12 @@ def build_road():
             src = (PALMS if palm else TREES_HI)[rng3.randrange(3)]
         else:
             src = (PALMS[rng3.randrange(3)]) if (palm and d < 900) else TREES_LO[rng3.randrange(3)]
-        sklib.instance(src, (x, y, 0), rng3.uniform(0, 6.28), 'ftree_%d' % i, T, rng3.uniform(0.8, 1.3))
+        tree_at(src, x, y, rng3.uniform(0, 6.28), 'ftree_%d' % i, T, rng3.uniform(0.7, 1.4), rng3, 0.06 if src in PALMS else 0.03)
         nfar += 1
     print('far trees', nfar)
     # yard trees along the walls
     for i, (xx, yy) in enumerate([(-31.5, -43.5), (-31.5, -30.0), (31.5, -40.0), (-31.5, -14.0), (30.5, -18.0), (8.0, -43.5)]):
-        sklib.instance((PALMS + TREES_HI)[i % 6], (xx, yy, 0), i * 1.3, 'ytree_%d' % i, T, 0.9)
+        sway(tree_at((PALMS + TREES_HI)[i % 6], xx, yy, i * 1.3, 'ytree_%d' % i, T, 0.9 + 0.1 * (i % 3), rng, 0.04), rng)
 
 
 build_road()
@@ -1662,7 +1872,10 @@ BUS = bus()
 LANE_E, LANE_W = ROAD_Y + 1.75, ROAD_Y - 1.75
 movers = [(BIKES[0], LANE_E + 0.9, math.pi / 2, -30.0, 0.55), (BIKES[1], LANE_E + 0.7, math.pi / 2, -62.0, 0.45),
           (BIKES[2], LANE_W - 0.8, -math.pi / 2, 175.0, -0.5), (AUTO, LANE_E, math.pi / 2, 5.0, 0.36),
-          (BUS, LANE_W, -math.pi / 2, 420.0, -0.6)]
+          (BUS, LANE_W, -math.pi / 2, 420.0, -0.6), (TRUCK, LANE_E - 0.1, math.pi / 2, 250.0, 0.42),
+          (AUTO, LANE_W, -math.pi / 2, 640.0, -0.35), (BIKES[0], LANE_W - 0.8, -math.pi / 2, 470.0, -0.5),
+          (BUS, LANE_E, math.pi / 2, 560.0, 0.5), (BIKES[2], LANE_E + 0.9, math.pi / 2, 760.0, 0.5),
+          (AUTO, LANE_E, math.pi / 2, 880.0, 0.32), (BIKES[1], LANE_W - 0.7, -math.pi / 2, 950.0, -0.45)]
 for i, (src, y, rz, x_at_1, v) in enumerate(movers):
     e = sklib.instance(src, (x_at_1, y, 0), rz, 'traffic_%d' % i, TRAFFIC)
     e.location.x = x_at_1
@@ -1678,7 +1891,7 @@ for i, (src, y, rz, x_at_1, v) in enumerate(movers):
 PEOPLE = C('PEOPLE')
 sig = people.make_person('P-YARD-1-signaller', sex='male', age=0.35, skin_tone=0.65, outfit='hivis_helmet', pose='wave',
                          location=(4.1, -7.2, 0), rotation_z=-60 * D2R, seed=3)
-people.animate_cycle(sig, 'wave', 1, 216, phase=0.2)
+people.animate_cycle(sig, 'wave', 1, 216, phase=0.2, amount=1.8)
 dock = people.make_person('P-YARD-2-dockhand', sex='male', age=0.25, skin_tone=0.8, body={'weight': 0.45},
                           outfit='tshirt_shorts', pose='pull_rope', location=(2.0, -1.3, 0), rotation_z=-90 * D2R, seed=8)
 people.animate_cycle(dock, 'pull', 1, 216, phase=0.6)
@@ -1688,7 +1901,13 @@ people.animate_cycle(guard, 'work', 1, 216, phase=0.4, amount=0.4)
 porter = people.make_person('P-YARD-4-porter', sex='male', age=0.45, skin_tone=0.9, body={'weight': 0.4},
                             outfit='tshirt_lungi', pose='carry', location=(27.2, -6.4, 0), rotation_z=120 * D2R, seed=21)
 people.animate_cycle(porter, 'work', 1, 216, phase=0.7, amount=0.5)
-for p in (sig, dock, guard, porter):
+fl_op = people.make_person('P-YARD-5-checker', sex='female', age=0.3, skin_tone=0.6, outfit='hivis_helmet', pose='stand',
+                           location=(-3.6, -11.2, 0), rotation_z=200 * D2R, seed=31)
+people.animate_cycle(fl_op, 'work', 1, 216, phase=0.1, amount=0.6)
+jack_w = people.make_person('P-YARD-6-jack', sex='male', age=0.5, skin_tone=0.75, body={'weight': 0.6}, outfit='tshirt_lungi',
+                            pose='pull_rope', location=(7.05, -5.75, 0), rotation_z=90 * D2R, seed=44)
+people.animate_cycle(jack_w, 'pull', 1, 216, phase=0.35)
+for p in (sig, dock, guard, porter, fl_op, jack_w):
     for o in [p] + list(p.children_recursive):
         for c in list(o.users_collection):
             c.objects.unlink(o)
@@ -1702,8 +1921,9 @@ keys = [
     (1, (0.0, 3.0, 2.75), (0.0, -10.0, 2.35), 28.0),          # BRIDGE_DOCK
     (24, (0.0, -1.6, 2.9), (0.0, -10.0, 1.7), None),
     (44, (0.0, -5.4, 3.95), (0.2, -10.5, 1.3), None),
-    (58, (0.4, -9.6, 4.85), (0.3, -12.5, 1.4), None),
-    (74, (4.2, -14.6, 5.6), (0.2, -9.0, 1.8), None),
+    (58, (0.3, -7.0, 6.4), (0.3, -10.8, 1.6), None),       # risen out of the cut-away roof, cab below/ahead
+    (66, (3.4, -9.4, 6.3), (0.3, -10.6, 1.7), None),       # orbit to the right around the cab front
+    (76, (5.8, -13.4, 6.2), (0.2, -8.8, 1.9), None),
     (90, (8.5, -18.5, 6.2), (0.5, -5.5, 1.9), None),
     (120, (17.0, -30.0, 11.0), (0.0, -5.5, 1.8), 28.0),
     (150, (46.0, -66.0, 28.0), (14.0, -6.0, 0.0), None),

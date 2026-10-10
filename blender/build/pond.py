@@ -274,11 +274,11 @@ def terrain_mat():
     green = _mix(nt, 1.0, bw.outputs[0], (0.42, 0.62, 0.2), 'MULTIPLY', -1100, 1900)
     green = _mix(nt, 0.3, green, grass[0], 'MIX', -950, 1900)
     vo = _n(nt, 'ShaderNodeTexVoronoi', -1500, 2700)
-    vo.inputs['Scale'].default_value = 0.012
+    vo.inputs['Scale'].default_value = 0.02
     _l(nt, tc.outputs['Object'], vo.inputs['Vector'])
     fsep = _n(nt, 'ShaderNodeSeparateColor', -1300, 2700)
     _l(nt, vo.outputs['Color'], fsep.inputs[0])
-    field = _mix(nt, _maprange(nt, fsep.outputs[0], 0.0, 1.0, 0.0, 1.0, -1100, 2700), (0.8, 1.15, 0.7), (1.0, 0.9, 0.75), 'MIX', -900, 2700)
+    field = _mix(nt, _maprange(nt, fsep.outputs[0], 0.0, 1.0, 0.0, 1.0, -1100, 2700), (0.62, 1.1, 0.55), (1.15, 0.88, 0.6), 'MIX', -900, 2700)
     field = _mix(nt, _maprange(nt, fsep.outputs[1], 0.7, 0.85, 0.0, 1.0, -1100, 2850), field, (1.25, 1.05, 0.7), 'MIX', -800, 2800)
     macro = _mix(nt, 1.0, macro, field, 'MULTIPLY', -700, 2500)
     gcol = _mix(nt, 1.0, green, macro, 'MULTIPLY', -700, 1700)
@@ -323,20 +323,21 @@ def water_mat():
     out = _n(nt, 'ShaderNodeOutputMaterial', 1200, 0)
     b = _n(nt, 'ShaderNodeBsdfPrincipled', 800, 200)
     _l(nt, b.outputs[0], out.inputs['Surface'])
-    b.inputs['Base Color'].default_value = (0.26, 0.36, 0.17, 1)
-    b.inputs['Transmission Weight'].default_value = 1.0
+    b.inputs['Base Color'].default_value = (0.13, 0.17, 0.08, 1)
+    b.inputs['Transmission Weight'].default_value = 0.5
     b.inputs['IOR'].default_value = 1.333
+    b.inputs['Specular IOR Level'].default_value = 0.4
     tc = _n(nt, 'ShaderNodeTexCoord', -900, 0)
     mp = _n(nt, 'ShaderNodeMapping', -700, 0)
     _l(nt, tc.outputs['Object'], mp.inputs['Vector'])
     mp.inputs['Scale'].default_value = (1, 1, 1)
     drive(mp.inputs['Location'], 'default_value', 'frame*0.02', 0)
     rn = _noise(nt, mp.outputs[0], 0.08, 3.0, 0.5, -500, 300)
-    _l(nt, _maprange(nt, rn.outputs['Fac'], 0.35, 0.65, 0.04, 0.13, -250, 300), b.inputs['Roughness'])
-    wv = _noise(nt, mp.outputs[0], 2.2, 6.0, 0.55, -500, -100)
+    _l(nt, _maprange(nt, rn.outputs['Fac'], 0.35, 0.65, 0.06, 0.2, -250, 300), b.inputs['Roughness'])
+    wv = _noise(nt, mp.outputs[0], 1.4, 7.0, 0.62, -500, -100)
     bp = _n(nt, 'ShaderNodeBump', 300, -200)
-    bp.inputs['Strength'].default_value = 0.18
-    bp.inputs['Distance'].default_value = 0.03
+    bp.inputs['Strength'].default_value = 0.4
+    bp.inputs['Distance'].default_value = 0.05
     _l(nt, wv.outputs['Fac'], bp.inputs['Height'])
     _l(nt, bp.outputs[0], b.inputs['Normal'])
     v = _n(nt, 'ShaderNodeVolumePrincipled', 800, -300)
@@ -360,8 +361,8 @@ def far_water_mat():
     nz = _noise(nt, tc.outputs['Object'], 0.03, 3.0, 0.5, -500, 200)
     _l(nt, _mix(nt, _maprange(nt, nz.outputs['Fac'], 0.3, 0.7, 0, 1, -300, 200), (0.05, 0.085, 0.045),
                 (0.07, 0.09, 0.05), 'MIX', -100, 200), b.inputs['Base Color'])
-    b.inputs['Roughness'].default_value = 0.12
-    b.inputs['Specular IOR Level'].default_value = 0.35
+    b.inputs['Roughness'].default_value = 0.22
+    b.inputs['Specular IOR Level'].default_value = 0.3
     return m
 
 
@@ -523,7 +524,7 @@ def aerator_collection(name, speed):
         for j in range(nys):
             pass
     xs = np.linspace(-0.9, 13.0, nxs)
-    grid = [[bm.verts.new((x, (j / (nys - 1) - 0.5) * (2.2 + 0.32 * max(0, x)), 0.012)) for j in range(nys)] for x in xs]
+    grid = [[bm.verts.new((x, (j / (nys - 1) - 0.5) * (2.2 + 0.32 * max(0, x)), 0.128)) for j in range(nys)] for x in xs]
     for i in range(nxs - 1):
         for j in range(nys - 1):
             bm.faces.new((grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]))
@@ -594,10 +595,14 @@ for i, (x0, x1, y0, y1) in enumerate(NEAR):
     if i in DRY:
         continue
     yc = (y0 + y1) / 2
-    if i == 12:     # harvest pond: one running far west, foam toward east but stops mid-pond
-        sklib.instance(AER[0], (x0 + 5.5, yc + 8, W - 0.12), 0.0, 'aer_%02d_a' % i, AERS)
-        n_aer += 1
+    if i == 12:     # harvest pond: three running in the north half, trails end mid-pond
+        for k, (ax, ay) in enumerate([(x0 + 6.0, y1 - 8.0), (x0 + 22.0, yc + 6.0), (x0 + 34.0, y1 - 6.0)]):
+            sklib.instance(AER[0], (ax, ay, W - 0.12), random.Random(k).uniform(-0.08, 0.08), 'aer_%02d_%d' % (i, k), AERS)
+            n_aer += 1
         continue
+    if i in (8, 13):  # neighbours of the low pass: one near the camera side
+        sklib.instance(AER[0], (x0 + 14.0, (y0 + 9.0) if i == 8 else (y0 + 10.0), W - 0.12), 0.05, 'aer_%02d_c' % i, AERS)
+        n_aer += 1
     r = random.Random(i)
     sklib.instance(AER[0], (x0 + 5.0 + r.uniform(0, 3), y0 + 7 + r.uniform(0, 3), W - 0.12), r.uniform(-0.1, 0.1),
                    'aer_%02d_a' % i, AERS)
@@ -753,8 +758,10 @@ def leaf_crown(bm, lv, centers, n_per, size, r, rad, droop=0.0, mi=1, shape='dia
             f[lv] = min(1, max(0, var + r.uniform(-0.2, 0.2)))
 
 
-def tree(name, seed, kind):
+def tree(name, seed, kind, lod=0):
     r = random.Random(seed)
+    q_ = 0.22 if lod else 1.0
+    z_ = 2.0 if lod else 1.0
     bm = bmesh.new()
     uvl = bm.loops.layers.uv.new('UVMap')
     lv = bm.faces.layers.float.new('leafvar')
@@ -777,7 +784,7 @@ def tree(name, seed, kind):
         crown_c = top + Vector((0, 0, 2.5))
         for k in range(10):
             centers.append(crown_c + Vector((r.uniform(-2.8, 2.8), r.uniform(-2.8, 2.8), r.uniform(-0.5, 2.2))))
-        leaf_crown(bm, lv, centers, 230, 0.26, r, 0.75)
+        leaf_crown(bm, lv, centers, int(230 * q_), 0.26 * z_, r, 0.75)
         mats = (sklib.pbr('bark_tree', 'bark_brown_02', wear=0.2),
                 leaf_mat('neem_leaf', (0.06, 0.14, 0.03), (0.1, 0.17, 0.04)))
     elif kind == 'casuarina':
@@ -793,14 +800,14 @@ def tree(name, seed, kind):
             p = c + Vector((math.cos(a) * rad * r.uniform(0.3, 1), math.sin(a) * rad * r.uniform(0.3, 1), 0))
             tube(bm, [c, p], [0.05 * (1.1 - t), 0.015], 5, 0)
             centers.append(p)
-        leaf_crown(bm, lv, centers, 420, 0.45, r, 0.55, droop=0.75, shape='strand')
+        leaf_crown(bm, lv, centers, int(420 * q_), 0.45 * z_, r, 0.55, droop=0.75, shape='strand')
         mats = (sklib.pbr('bark_tree', 'bark_brown_02', wear=0.2),
                 leaf_mat('casuarina_needle', (0.07, 0.1, 0.04), (0.1, 0.12, 0.05), transl=0.2))
     else:   # shrub
         for k in range(r.randint(5, 9)):
             centers.append(Vector((r.uniform(-0.8, 0.8), r.uniform(-0.8, 0.8), r.uniform(0.4, 1.1))))
             tube(bm, [Vector((0, 0, 0)), centers[-1]], [0.04, 0.01], 5, 0)
-        leaf_crown(bm, lv, centers, 140, 0.18, r, 0.4)
+        leaf_crown(bm, lv, centers, int(140 * q_), 0.18 * z_, r, 0.4)
         mats = (sklib.pbr('bark_tree', 'bark_brown_02', wear=0.2),
                 leaf_mat('shrub_leaf', (0.08, 0.15, 0.03), (0.15, 0.17, 0.04)))
     ob = sklib._mesh_obj(name, bm, False)
@@ -902,6 +909,19 @@ shrub_pts = [p for p in [(vr.uniform(-245, 5), vr.choice([vr.uniform(-40, -27.5)
                          for _ in range(90)] + [(float(shore_x(y)) - vr.uniform(8.5, 14), y) for y in np.arange(-60, 170, 6)]
              if free_spot(*p, 7.0)]
 n_shrub = place(SHRUBS, shrub_pts, vr, (0.6, 1.4), 'shrub')
+# scattered tree clumps + scrub across the open land (aerial read)
+land = []
+for k in range(70):
+    cx, cy = vr.uniform(-800, 250), vr.uniform(-700, 850)
+    for j in range(vr.randint(2, 6)):
+        p = (cx + vr.gauss(0, 12), cy + vr.gauss(0, 12))
+        if free_spot(*p, 6):
+            land.append(p)
+TREES_LO = [lib_coll('A-VEG-TREE-LO-%d' % i, [tree('treelo_%d' % i, 40 + i, k, 1)]) for i, k in enumerate(['neem', 'neem', 'casuarina'])]
+SHRUBS_LO = [lib_coll('A-VEG-SHRUB-LO-%d' % i, [tree('shrublo_%d' % i, 80 + i, 'shrub', 1)]) for i in range(2)]
+n_tree += place(TREES_LO, land, vr, (0.8, 1.25), 'clump')
+scrub = [p for p in [(vr.uniform(-800, 250), vr.uniform(-700, 850)) for _ in range(500)] if free_spot(*p, 6)]
+n_shrub += place(SHRUBS_LO, scrub, vr, (0.9, 1.8), 'scrub')
 print('palms', n_palm, 'grove', n_grove, 'trees', n_tree, 'shrubs', n_shrub)
 
 
@@ -1407,7 +1427,7 @@ if not FAST:
                 body={'weight': 0.35})
     P3 = person('P-FARM-3', 'tshirt_shorts', 'carry', HX - 0.6, HY + 0.2, (HX, HY), 3, 0.25, 0.8)
     P4 = person('P-FARM-4', 'tshirt_shorts', 'carry', HX - 0.55, HY - 0.8, (HX, HY), 4, 0.4, 0.95)
-    P5 = person('P-FARM-5', 'cotton_shirt_lungi_towel', 'stand', 0.9, HY - 2.9, (HX, HY), 5, 0.7, 0.75)
+    P5 = person('P-FARM-5', 'cotton_shirt_lungi_towel', 'stand', 0.5, HY - 0.9, (HX, HY), 5, 0.7, 0.75)
     P6 = person('P-FARM-6', 'cotton_shirt_lungi_towel', 'walk', -118.0, 21.1, (-50, 21.1), 6, 0.45, 0.65)
     def recolor(p, part, color):
         for c in p.children:
@@ -1583,6 +1603,31 @@ def sun_disc():
 
 
 sun_disc()
+
+def add_haze(mat, k=2600.0, amax=0.32, col=(0.84, 0.84, 0.85), st=0.9):
+    """Aerial perspective: blend toward the dawn horizon colour with view distance (no compositor)."""
+    nt = mat.node_tree
+    out = [n for n in nt.nodes if n.type == 'OUTPUT_MATERIAL'][0]
+    lk = out.inputs['Surface'].links
+    if not lk:
+        return
+    src = lk[0].from_socket
+    cd = nt.nodes.new('ShaderNodeCameraData')
+    f = _math(nt, 'MULTIPLY', _math(nt, 'SUBTRACT', 1.0, _math(nt, 'EXPONENT', _math(nt, 'DIVIDE', cd.outputs['View Distance'], -k))), amax)
+    em = nt.nodes.new('ShaderNodeEmission')
+    em.inputs['Color'].default_value = col + (1,)
+    em.inputs['Strength'].default_value = st
+    ms = nt.nodes.new('ShaderNodeMixShader')
+    nt.links.new(f, ms.inputs[0])
+    nt.links.new(src, ms.inputs[1])
+    nt.links.new(em.outputs[0], ms.inputs[2])
+    nt.links.new(ms.outputs[0], out.inputs['Surface'])
+
+
+for mn in ('pond_terrain', 'pond_water_far', 'palm_leaf', 'palm_rachis', 'coconut', 'palm_bark', 'neem_leaf',
+           'casuarina_needle', 'shrub_leaf', 'bark_tree', 'grass_blade', 'tin_roof', 'brick_wall', 'pole_bark'):
+    if bpy.data.materials.get(mn):
+        add_haze(bpy.data.materials[mn])
 
 # ============================================================================================================ camera
 cam = sklib.camera('CAM', 24.0, (-560.0, -60.0, 300.0), (0, 0, 0))

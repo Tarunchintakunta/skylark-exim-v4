@@ -125,7 +125,7 @@ M = dict(
     tetra=sklib.pbr('tetrapod_conc', 'concrete_floor_worn_001', tint=(0.66, 0.64, 0.60), wear=0.55, contrast=0.7,
                     wear_color=(0.22, 0.24, 0.2), ao_dist=0.6, scale=0.6),
     rock=sklib.pbr('rock_aerial', 'aerial_rocks_02', wear=0.0, scale=0.25),
-    grass=sklib.pbr('grass_dry', 'sparse_grass', tint=(0.28, 0.33, 0.14), sat=0.5, wear=0.0, scale=2.5),
+    grass=sklib.pbr('grass_scrub', 'sparse_grass', tint=(0.13, 0.20, 0.07), sat=0.35, wear=0.0, scale=4.0, var=0.35),
     wood=sklib.oak_table(0.15), corr=sklib.corrugated_steel((0.62, 0.63, 0.64), 0.35),
     corr_b=sklib.corrugated_steel((0.32, 0.42, 0.5), 0.35),
     rope=sklib.flat('rope_poly', (0.62, 0.52, 0.30), rough=0.85, var=0.15, scale=60, bump=0.4),
@@ -243,7 +243,7 @@ def water_flat():
 
 
 # ------------------------------------------------------------------------------------------------ world + sea
-sklib.sky_world(sun_elev_deg=52, sun_az_deg=135)
+sklib.sky_world(sun_elev_deg=52, sun_az_deg=135, sun_angle_deg=3.0)
 SUN = bpy.data.objects['SK_Sun']
 sky = [n for n in bpy.data.worlds['SK_Sky'].node_tree.nodes if n.type == 'TEX_SKY'][0]
 
@@ -423,8 +423,9 @@ def head_h(x, y):
 
 
 HEAD = terrain('A-ENV-HEADLAND', 20, 580, -480, -130, 112, 70, head_h, C['ENV'])
-RIDGE = terrain('A-ENV-HILLS-N', -1500, 2500, 1250, 2600, 80, 27,
-                lambda x, y: 60 + 260 * max(0, noise.noise(Vector((x / 900, y / 700, 0.2))) + 0.35) + 30 * fbm(x, y, 300), C['ENV'], 0.6)
+RIDGE = terrain('A-ENV-HILLS-N', -1500, 2500, 1250, 2600, 200, 70,
+                lambda x, y: 40 + 230 * max(0, noise.noise(Vector((x / 900, y / 700, 0.2))) + 0.35) + 55 * fbm(x, y, 220, 6)
+                * (0.4 + max(0, noise.noise(Vector((x / 900, y / 700, 0.2))) + 0.35)), C['ENV'], 0.7)
 
 
 def tree_coll():
@@ -511,7 +512,7 @@ for i, x in enumerate(YARD_ROWS):
             if y > 405:
                 continue
             u = ry.random()
-            tiers = 0 if u < 0.1 else (1 if u < 0.32 else (2 if u < 0.72 else 3))
+            tiers = 0 if u < 0.12 else (1 if u < 0.3 else (2 if u < 0.58 else (3 if u < 0.86 else 4)))
             full = i < 5 and y < 130
             z = QZ
             for t in range(tiers):
@@ -530,7 +531,8 @@ log('yard containers', NCONT)
 
 # light towers + yard light poles
 bm = bmesh.new()
-for (x, y) in ((67, -95), (67, -5), (67, 125), (67, 235), (236, -60), (236, 60), (236, 180), (236, 300)):
+for (x, y) in ((67, -95), (67, -5), (67, 125), (67, 235), (236, -60), (236, 60), (236, 180), (236, 300),
+               (74, BLOCKS[0] + 83.8), (74, BLOCKS[2] + 83.8), (74, BLOCKS[3] + 83.8), (150, BLOCKS[1] + 83.8)):
     bcyl(bm, Vector((x, y, QZ + 17)), 0.45, 34, 'Z', 12, 0, 0.28)
     bcyl(bm, Vector((x, y, QZ + 0.4)), 0.9, 0.8, 'Z', 12, 0)
     bbox(bm, Vector((x, y, QZ + 34.3)), (4.4, 1.6, 0.25), 0)
@@ -843,7 +845,6 @@ def crane_static():
     bbox(bm, Vector((55.0, 0, ZG + 3.0)), (16.0, 10.0, 6.0), 4)                               # machinery house
     bbox(bm, Vector((55.0, 0, ZG + 6.1)), (16.4, 10.4, 0.25), 1)
     bbox(bm, Vector((LEG_L + 0.2, 0, 21.0)), (6.0, 9.0, 5.0), 4)                              # e-house
-    bcyl(bm, Vector((LEG_L + 1.4, -HALF - 1.2, 6.0)), 1.5, 1.0, 'Y', 24, 4)                   # cable reel
     # stair tower beside the land leg (zig-zag flights + landings + handrails)
     sx0, sy0 = LEG_L + 1.6, -HALF
     for k in range(13):
@@ -1083,6 +1084,33 @@ for y in range(-110, 120, 9):
         bcyl(bm, Vector((14.5, y + 0.5, QZ + 0.35)), 0.16, 0.7, 'Z', 10, 0, 0.03)
         bbox(bm, Vector((14.5, y + 0.5, QZ + 0.02)), (0.42, 0.42, 0.04), 1)
 mk('A-PORT-CONES', bm, (M['orange'], M['black']), C['QUAY'], 0.01)
+
+def straddle_carrier(name, coll):
+    """Straddle carrier (long axis Y, travels X): 4 legs in the stack gaps, top frame, cab, carried box."""
+    bm = bmesh.new()
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            bbox(bm, Vector((sx * 2.1, sy * 6.3, 5.6)), (0.55, 0.7, 9.6), 0)
+            bcyl(bm, Vector((sx * 2.1, sy * 6.3, 0.55)), 0.55, 0.5, 'X', 14, 2)
+        bbox(bm, Vector((sx * 2.1, 0, 10.6)), (0.7, 13.4, 0.9), 0)               # top beams
+        bbox(bm, Vector((sx * 2.1, 0, 1.4)), (0.6, 13.4, 0.5), 0)                # bottom rails
+    for sy in (-1, 1):
+        bbox(bm, Vector((0, sy * 6.3, 10.6)), (4.8, 0.7, 0.9), 0)
+    bbox(bm, Vector((2.9, -5.6, 9.7)), (1.4, 1.6, 2.0), 0)                       # cab
+    bbox(bm, Vector((3.61, -5.6, 9.9)), (0.02, 1.4, 1.2), 1)
+    bbox(bm, Vector((0, 0, 9.9)), (2.0, 11.8, 0.5), 3)                           # spreader
+    ob = mk(name, bm, (M['orange'], M['glass'], M['rubber'], M['yellow']), coll, 0.04)
+    box_ = sklib.instance(pick(R), (0, 0, 9.65 - CH_ - 0.05), math.pi / 2, name + '.box', coll)
+    box_.parent = ob
+    return ob
+
+
+for k, (yl, x0, x1) in enumerate(((BLOCKS[0] + 83.8, 80.0, 150.0), (BLOCKS[2] + 83.8, 210.0, 120.0))):
+    sc = straddle_carrier('A-PORT-SC.%d' % (k + 1), C['VEH'])
+    key_loc(sc, 1, (x0, yl, QZ))
+    key_loc(sc, F_END, (x1, yl, QZ))
+    linear(sc)
+    NVEH += 1
 
 rs_ = reach_stacker(C['VEH'])
 rs_.rotation_euler.z = 0.0

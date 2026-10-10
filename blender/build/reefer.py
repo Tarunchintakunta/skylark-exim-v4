@@ -280,7 +280,7 @@ for fc in sklib._fcurves(fan):
 # status lamp (green) on the control box
 bm = bmesh.new()
 sklib._bm_cyl(bm, Vector((-L / 2 - 0.03, 0.30, 1.78)), 0.022, 0.02, 'X', 12)
-mesh('reefer_status_lamp', bm, (sklib.flat('lamp_green', (0.1, 0.9, 0.2), 0.3, **{'Emission Color': (0.1, 1.0, 0.25, 1), 'Emission Strength': 12.0}),),
+mesh('reefer_status_lamp', bm, (sklib.flat('lamp_green', (0.1, 0.9, 0.2), 0.3, **{'Emission Color': (0.1, 1.0, 0.25, 1), 'Emission Strength': 9.0}),),
      parent=FAN_C)
 
 
@@ -430,7 +430,7 @@ for a, b in zip(rows[:-1], rows[1:]):
 ch = imesh('reefer_air_chute', bm, (sklib.plastic((0.82, 0.84, 0.85), 0.2, name='vinyl_chute'),))
 ch.data.shade_smooth()
 # LED strips + their lights (cool 6500 K)
-LED = sklib.flat('led_strip', (0.9, 0.95, 1.0), 0.3, **{'Emission Color': (0.85, 0.92, 1.0, 1), 'Emission Strength': 18.0})
+LED = sklib.flat('led_strip', (0.9, 0.95, 1.0), 0.3, **{'Emission Color': (0.85, 0.92, 1.0, 1), 'Emission Strength': 9.0})
 bm = bmesh.new()
 for sy in (-0.75, 0.75):
     box(bm, ((XU + XD) / 2 - 0.3, sy, CZL - 0.012), (XD - XU - 1.2, 0.05, 0.02))
@@ -439,7 +439,7 @@ K65 = sklib.kelvin_rgb(6500)
 for sy in (-0.75, 0.75):
     for x in (-2.8, 2.8):
         ld = bpy.data.lights.new('reefer_led', 'AREA')
-        ld.shape, ld.size, ld.size_y, ld.energy, ld.color = 'RECTANGLE', 5.4, 0.12, 110.0, K65
+        ld.shape, ld.size, ld.size_y, ld.energy, ld.color = 'RECTANGLE', 5.4, 0.12, 50.0, K65
         ld.use_shadow = False
         lo = sklib.new_obj('reefer_led_light', ld, INT, HERO_C, (x, sy, CZL - 0.03))
 # cold mist volume (faint, denser low)
@@ -494,7 +494,7 @@ sklib._l(nt, pb.outputs[0], out.inputs['Surface'])
 tc = sklib._n(nt, 'ShaderNodeTexCoord', -1100, 0)
 geo = sklib._n(nt, 'ShaderNodeNewGeometry', -300, -600)
 nzc = sklib._noise(nt, tc.outputs['Object'], 45.0, 6.0, 0.65, -900, 400)          # frost coverage
-cov = sklib._maprange(nt, nzc.outputs['Fac'], 0.38, 0.62, 0.0, 1.0, -650, 400)
+cov = sklib._maprange(nt, nzc.outputs['Fac'], 0.44, 0.56, 0.0, 1.0, -650, 400)
 facets = []
 for i, sc in enumerate((380.0, 1500.0)):                                             # plates + fine needles
     vo = sklib._n(nt, 'ShaderNodeTexVoronoi', -900, -100 - 300 * i)
@@ -513,15 +513,15 @@ sklib._l(nt, d0.outputs[0], ad.inputs[0])
 sklib._l(nt, d1.outputs[0], ad.inputs[1])
 sc_ = sklib._n(nt, 'ShaderNodeVectorMath', -200, -250, operation='SCALE')
 sklib._l(nt, ad.outputs[0], sc_.inputs[0])
-sklib._l(nt, sklib._maprange(nt, cov, 0, 1, 0.08, 1.3, -400, 100), sc_.inputs['Scale'])
+sklib._l(nt, sklib._maprange(nt, cov, 0, 1, 0.1, 2.4, -400, 100), sc_.inputs['Scale'])
 nn = sklib._n(nt, 'ShaderNodeVectorMath', 0, -400, operation='ADD')
 sklib._l(nt, sc_.outputs[0], nn.inputs[0])
 sklib._l(nt, geo.outputs['Normal'], nn.inputs[1])
 nrm = sklib._n(nt, 'ShaderNodeVectorMath', 200, -400, operation='NORMALIZE')
 sklib._l(nt, nn.outputs[0], nrm.inputs[0])
 sklib._l(nt, nrm.outputs[0], pb.inputs['Normal'])
-grain = sklib._maprange(nt, facets[1].outputs['Distance'], 0.0, 0.5, 1.0, 0.75, -400, 650)
-col = sklib._mix(nt, cov, (0.30, 0.34, 0.38), (0.80, 0.84, 0.88), 'MIX', -150, 450)
+grain = sklib._maprange(nt, facets[1].outputs['Distance'], 0.0, 0.5, 1.0, 0.45, -400, 650)
+col = sklib._mix(nt, cov, (0.07, 0.085, 0.10), (0.78, 0.82, 0.86), 'MIX', -150, 450)
 cm = sklib._n(nt, 'ShaderNodeVectorMath', 100, 450, operation='SCALE')
 sklib._l(nt, col, cm.inputs[0])
 sklib._l(nt, grain, cm.inputs['Scale'])
@@ -536,7 +536,7 @@ frost.location = (0, 0, TOPZ)
 frost.rotation_euler.z = 0.03
 frost.data.shade_smooth()
 fl = bpy.data.lights.new('BRIDGE_FROST.light', 'AREA')
-fl.shape, fl.size, fl.energy, fl.color = 'SQUARE', 0.35, 5.0, K65
+fl.shape, fl.size, fl.energy, fl.color = 'SQUARE', 0.35, 3.0, K65
 sklib.new_obj('BRIDGE_FROST.light', fl, BF, hero, (0, 0, TOPZ + 1.0))
 bpy.context.view_layer.update()
 
@@ -719,7 +719,7 @@ H = hero_S()
 # (frame, ship-space pos, pitch deg (0 = down, 90 = level), yaw deg (0 = +Y, + = to port), lens, focus, fstop)
 KEYS = [
     (1, H + Vector((0, 0, 0.12)), 0.0, 0.0, 100.0, 0.12, 2.8),
-    (14, H + Vector((0, 0, 0.13)), 0.0, 0.0, 100.0, 0.45, 2.8),
+    (14, H + Vector((0, 0, 0.13)), 0.0, 0.0, 100.0, 0.17, 4.0),
     (45, Vector((H.x + 0.06, H.y - 2.05, H.z + 0.68)), 71.0, 0.0, 32.0, 2.2, 2.8),
     (75, Vector((OX - 0.10, GAP_Y1 - 0.15, OZ + FZL + 1.95)), 80.0, 0.0, 26.0, 4.6, 4.0),
     (95, Vector((OX - 0.05, GAP_C + 0.1, OZ + FZL + 2.15)), 82.0, 0.0, 24.0, 1.7, 4.0),

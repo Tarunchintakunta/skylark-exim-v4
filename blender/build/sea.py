@@ -1049,8 +1049,8 @@ KEYS = [
     (120, tuple(W(5.8, -13.5, 3.3)), W(0, -9.0, 1.2), None),         # starboard quarter
     (160, tuple(W(0.8, -16.0, 4.1)), W(0, -8.6, 1.5), 35.0),         # astern, the bag up and dripping
     (178, tuple(W(2.3, -11.8, 3.4)), W(0.6, -6.0, 0.9), None),
-    (196, tuple(W(1.55, -9.15, dz + 2.3)), W(0.55, -6.0, dz + 0.2), 55.0),   # deck beat: gloved hands sorting on ice
-    (210, tuple(W(1.6, -9.05, dz + 2.35)), W(0.6, -5.9, dz + 0.22), 55.0),
+    (196, tuple(W(1.3, -9.15, dz + 2.3)), W(0.5, -6.1, dz + 0.1), 55.0),   # deck beat: gloved hands sorting on ice
+    (210, tuple(W(1.35, -9.05, dz + 2.35)), W(0.55, -6.0, dz + 0.12), 55.0),
     (226, tuple(W(4.3, -8.3, 4.5)), W(1.0, -2.6, 1.3), None),              # rise up and out behind the sorter
     (264, tuple(W(11.0, -1.6, 2.35)), None, 32.0),                   # crew portrait, backlit
 ]
