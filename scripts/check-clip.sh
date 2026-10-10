@@ -10,7 +10,7 @@ rc=0
 for id in "${ids[@]}"; do
   row=$(scene_row "$id") || { echo "unknown $id"; rc=1; continue; }
   IFS='|' read -r _ _ F L _ kind <<<"$row"; n=$(( L - F + 1 )); line="$id"
-  for w in 1920 1280 960; do
+  for w in 1920 1280 960 720; do
     f="public/media/${id}_${w}.mp4"; [ -f "$f" ] || { line="$line  !!${w} missing"; rc=1; continue; }
     kb=$(( $(fsize "$f")/1024 )); [ "$kb" -gt 2250 ] && { line="$line  !!${w} ${kb}KB>2250"; rc=1; }
     types=$(ffprobe -v error -select_streams v:0 -show_entries frame=pict_type -of csv=p=0 "$f" | tr -d ',\n ')
@@ -22,7 +22,7 @@ for id in "${ids[@]}"; do
     [ -n "$(ffprobe -v error -select_streams a -show_entries stream=index -of csv=p=0 "$f")" ] && { line="$line  !!${w} has audio"; rc=1; }
     line="$line  ${w}:${kb}KB"
   done
-  for p in 1920 1280 960 end_1280 end_960; do [ -f "public/media/${id}_${p}.webp" ] || { line="$line  !!poster $p missing"; rc=1; }; done
+  for p in 1920 1280 960 720 end_1280 end_960 end_720; do [ -f "public/media/${id}_${p}.webp" ] || { line="$line  !!poster $p missing"; rc=1; }; done
   m="public/media/${id}_960.mp4"
   if [ -f "$m" ]; then
     read -r y ymin < <(ffmpeg -v error -i "$m" -vf "scale=320:-2,signalstats,metadata=print:key=lavfi.signalstats.YAVG:file=-" -f null - | awk -F= '/YAVG/{s+=$2;n++; if(min==""||$2<min)min=$2} END{printf "%.0f %.0f\n", s/n, min}')
