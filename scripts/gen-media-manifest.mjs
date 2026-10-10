@@ -5,8 +5,8 @@ const src = readFileSync('src/config/chapters.ts', 'utf8')
 const ids = [...src.matchAll(/id: '([^']+)'/g)].map((m) => m[1])
 const out = []
 for (const id of ids) {
-  for (const w of [1920, 1280, 960]) out.push(`/media/${id}_${w}.mp4`, `/media/${id}_${w}.webp`)
-  for (const w of [1280, 960]) out.push(`/media/${id}_end_${w}.webp`)
+  for (const w of [1920, 1280, 960, 720]) out.push(`/media/${id}_${w}.mp4`, `/media/${id}_${w}.webp`)
+  for (const w of [1280, 960, 720]) out.push(`/media/${id}_end_${w}.webp`)
 }
 const extra = (() => {
   try {
