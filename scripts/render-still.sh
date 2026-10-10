@@ -10,4 +10,4 @@ w=1920; h=1080; [ "$id" = og-image ] && { w=1200; h=630; }
 "$BLENDER" -b "$file" --python-expr "import bpy; s=bpy.context.scene; s.render.resolution_x=$w; s.render.resolution_y=$h; s.render.resolution_percentage=100; s.render.image_settings.file_format='PNG'; s.render.filepath='$PWD/$tmp/$name'" -f "$fr"
 png=$(ls "$tmp/$name"*.png | head -1)
 if [ "$id" = og-image ]; then ffmpeg -v error -y -i "$png" -q:v 3 public/og/og-image.jpg; echo "public/og/og-image.jpg $(( $(fsize public/og/og-image.jpg)/1024 )) KB"
-else for tw in 1920 960; do ffmpeg -v error -y -i "$png" -vf "scale=$tw:-2" -c:v libwebp -quality 74 "public/media/${name}_$tw.webp"; echo "public/media/${name}_$tw.webp $(( $(fsize "public/media/${name}_$tw.webp")/1024 )) KB"; done; fi
+else for tw in 1920 960; do ffmpeg -v error -y -i "$png" -vf "scale=$tw:-2" "$tmp/${name}_$tw.png" && cwebp -quiet -q 74 "$tmp/${name}_$tw.png" -o "public/media/${name}_$tw.webp"; echo "public/media/${name}_$tw.webp $(( $(fsize "public/media/${name}_$tw.webp")/1024 )) KB"; done; fi
