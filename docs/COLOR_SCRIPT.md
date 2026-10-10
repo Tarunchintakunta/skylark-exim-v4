@@ -46,7 +46,7 @@ Both scenes of a join use the same light at the shared frame. The exact frame is
 - **Saturation:** 1.08–1.15. **Contrast:** via the AgX look plus a gentle S-curve.
 - **Bloom:** Glare node (Bloom / Fog Glow), threshold 1.0, mix ≈ −0.85, size 7–8, on highlights only.
 - **Vignette:** ≤ 12 % at the corners (blurred ellipse mask multiply).
-- **Film grain is applied on the web layer, not baked.** Grain baked into H.264 costs 30–60 % more bitrate and would break the 2,300 KB cap. The site adds an animated SVG noise layer at 3–4 % opacity instead.
+- **Film grain is applied on the web layer, not baked.** Grain baked into H.264 costs 30–60 % more bitrate and would break the 2,300 KB cap. The site adds a static SVG noise layer at 3–4 % opacity instead (an animated one doubled the scroll frame time, so it stays still).
 - **Chained clips** (plant-cold v-cold/v-pack/v-freeze and plant-line v-qc…v-wash) use **one grade per .blend**, so the internal joins stay identical. Cross-file joins are equalised and boundary-checked afterwards.
 
 ## 4. Web layer palette (CSS custom properties)
