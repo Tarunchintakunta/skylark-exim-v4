@@ -18,6 +18,9 @@
   pointer-events: none;
 }
 .site-header-mark {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
   text-decoration: none;
   position: relative;
   z-index: 2;

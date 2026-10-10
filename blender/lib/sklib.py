@@ -1530,17 +1530,20 @@ def ocean(size=200.0, seed=41, time=0.0, choppy=1.2, foam=True, wave_scale=1.0, 
     ob = new_obj(name, me, coll)
     m = ob.modifiers.new('Ocean', 'OCEAN')
     m.geometry_mode = 'GENERATE'
-    m.spatial_size = 50
-    m.repeat_x = m.repeat_y = max(1, int(round(size / 50)))
-    m.resolution, m.viewport_resolution = res, 6
+    # Perf (measured): 40×40 tiles of 50 m cost ~70 s of a 74 s preview frame. Displace at most 6×6 tiles of 100 m
+    # around the origin and continue to `size` with a flat far plane of the same water (added below).
+    m.spatial_size = 100
+    m.repeat_x = m.repeat_y = max(1, min(6, int(round(size / 100))))
+    m.resolution, m.viewport_resolution = min(res, 10), 6
     m.random_seed, m.time, m.choppiness, m.wave_scale, m.wind_velocity = seed, time, choppy, wave_scale, wind
     m.use_normals = True
     if foam:
-        m.use_foam, m.foam_layer_name, m.foam_coverage = True, 'foam', 0.25
+        m.use_foam, m.foam_layer_name, m.foam_coverage = True, 'foam', -0.3   # lace, not snow patches
     if animate:
         d = m.driver_add('time').driver
         d.type, d.expression = 'SCRIPTED', 'frame/24 + %g' % time
-    ob.location = (-size / 2, -size / 2, 0)
+    ext = m.repeat_x * m.spatial_size
+    ob.location = (-ext / 2, -ext / 2, 0)
     mat, nt = _new_mat(name + '_water')
     out = _n(nt, 'ShaderNodeOutputMaterial', 1200, 0)
     gl = _n(nt, 'ShaderNodeBsdfGlossy', 300, 200)
@@ -1580,6 +1583,12 @@ def ocean(size=200.0, seed=41, time=0.0, choppy=1.2, foam=True, wave_scale=1.0, 
     _l(nt, sh, out.inputs['Surface'])
     mat_to(ob, mat, uv=False)
     ob.visible_shadow = False
+    if size > ext:
+        far = new_obj(name + '_far', bpy.data.meshes.new(name + '_far'), coll, loc=(0, 0, -0.15))
+        h = size * 0.75
+        far.data.from_pydata([(-h, -h, 0), (h, -h, 0), (h, h, 0), (-h, h, 0)], [], [(0, 1, 2, 3)])
+        far.data.materials.append(mat)
+        far.visible_shadow = False
     return ob
 
 

@@ -5,6 +5,8 @@
 #   full    -> the .blend's saved settings (blender/render_settings.py: 1920x1080, 24 fps, AgX) -> assets-src/render/<dir>/####.png
 #   Full renders skip frames that already exist (resume after a crash/sleep); FORCE=1 re-renders all frames after a scene change.
 # Env: BLENDER=/path/to/Blender  FORCE=1  DRY=1 (print commands only)
+#      STEP=n (preview only, default 2): render every n-th frame (+ the last) and fill the gaps with ffmpeg motion
+#      interpolation, so previews finish on a shared GPU. Rendered frames are kept exactly (boundary frames are rendered).
 set -euo pipefail
 cd "$(dirname "$0")/.."; source scripts/scenes.sh
 b="${1:?blend name}"; mode="${2:?preview|full}"
@@ -19,8 +21,13 @@ keep=(); command -v caffeinate >/dev/null && keep=(caffeinate -dims)   # macOS: 
 start=$(date +%s)
 if [ "$mode" = preview ]; then
   out="assets-src/render/preview/$b"; [ $# -lt 3 ] && [ "${DRY:-0}" != 1 ] && rm -rf "$out"; mkdir -p "$out" docs/renders
-  py="import bpy; s=bpy.context.scene; s.render.resolution_x=1920; s.render.resolution_y=1080; s.render.resolution_percentage=50; s.eevee.taa_render_samples=16; s.render.use_motion_blur=False; s.render.use_overwrite=True; s.render.image_settings.file_format='PNG'; s.render.filepath='$PWD/$out/'"
-  run "${keep[@]}" "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -s "$F" -e "$L" -a
+  STEP="${STEP:-2}"
+  py="import bpy; s=bpy.context.scene; s.render.resolution_x=1920; s.render.resolution_y=1080; s.render.resolution_percentage=50; s.eevee.taa_render_samples=16; s.render.use_motion_blur=False; s.render.use_overwrite=True; s.render.image_settings.file_format='PNG'; s.render.filepath='$PWD/$out/'; e=s.eevee; [setattr(e,a,v) for a,v in (('volumetric_samples',16),('volumetric_tile_size','8')) if hasattr(e,a)]"
+  run "${keep[@]}" "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -s "$F" -e "$L" -j "$STEP" -a
+  if [ "$STEP" -gt 1 ] && [ "${DRY:-0}" != 1 ]; then
+    [ -f "$(printf "%s/%04d.png" "$out" "$L")" ] || "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -f "$L"
+    scripts/fill-frames.sh "$out" "$F" "$L" "$STEP"
+  fi
   run ffmpeg -v error -y -framerate 24 -start_number "$F" -i "$out/%04d.png" -c:v libx264 -crf 26 -pix_fmt yuv420p -movflags +faststart "docs/renders/$b-preview.mp4"
   run scripts/contact-sheet.sh "docs/renders/$b-preview.mp4" "docs/renders/$b-sheet.jpg" 12
   [ "${DRY:-0}" = 1 ] || echo "preview $b frames $F-$L in $(( ($(date +%s)-start)/60 )) min: docs/renders/$b-preview.mp4 ($(( $(fsize "docs/renders/$b-preview.mp4") / 1024 )) KB, keep <= 4096 KB) + docs/renders/$b-sheet.jpg"
