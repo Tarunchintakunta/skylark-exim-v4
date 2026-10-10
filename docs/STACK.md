@@ -36,4 +36,4 @@ Merge strictly in this order; after each merge GitHub retargets the next PR to m
 | 29  | #61 | scene/31-media-refresh   | #31 (also covers #20, #32 report) |
 
 Note the table order, not the PR numbers: #51 (asset/11) sits below #49, and #52 (perf/29) sits above #50.
-No deploy PR exists: #30 is blocked (needs-tarun, see docs/REPORT.md). The morning report is committed on the top branch (#61).
+#63 holds the reverted Git-deploy attempt (deploys stay off; #30 stays needs-tarun, see docs/REPORT.md). The morning report is committed on the top branch (#61).
