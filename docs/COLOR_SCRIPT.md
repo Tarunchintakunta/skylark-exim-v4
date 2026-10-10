@@ -42,7 +42,7 @@ Both scenes of a join use the same light at the shared frame. The exact frame is
 ## 3. Grade (Blender compositor, per scene, `assets-src/blender/lib/look.py`)
 
 - **View transform:** AgX, look **"AgX - Punchy"** for exteriors and **"AgX - Medium High Contrast"** for interiors.
-- **Lift / gamma / gain:** shadows lifted into the chapter's dominant hue (lift tint ≤ 0.03), highlights warmed toward the key colour (gain tint ≤ 0.04).
+- **Lift / gamma / gain — complementary, not monochrome:** shadows lift toward the chapter's _cool_ colour (fill / secondary: teal, blue or violet), highlights warm toward the key (gain). Warm light against cool shadow gives the layered Zoi look. Lifting shadows into a warm dominant hue (gold, amber) turns the frame sepia: the truck test proved it, so don't. Interiors that are cool overall (cold store, IQF) do the reverse: cool lift, with the marigold accents and the warm doorway rim as the only warmth. Tint strength: lift ≤ 0.025, gain ≤ 0.035.
 - **Saturation:** 1.08–1.15. **Contrast:** via the AgX look plus a gentle S-curve.
 - **Bloom:** Glare node (Bloom / Fog Glow), threshold 1.0, mix ≈ −0.85, size 7–8, on highlights only.
 - **Vignette:** ≤ 12 % at the corners (blurred ellipse mask multiply).
