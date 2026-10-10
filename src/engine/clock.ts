@@ -17,6 +17,18 @@ export const lenis =
     : new Lenis({ autoRaf: false, lerp: 0.09, smoothWheel: true, syncTouch: false })
 lenis?.on('scroll', ScrollTrigger.update)
 
+/** Test hook: jump instantly (Lenis owns the scroll position on desktop). */
+export function jumpTo(y: number) {
+  if (lenis) lenis.scrollTo(y, { immediate: true, force: true })
+  else window.scrollTo(0, y)
+}
+declare global {
+  interface Window {
+    __v4jump: (y: number) => void
+  }
+}
+window.__v4jump = jumpTo
+
 gsap.ticker.add((t) => {
   lenis?.raf(t * 1000)
   for (const fn of subs) fn(t)

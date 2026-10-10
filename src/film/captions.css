@@ -1,0 +1,134 @@
+.captions {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  color: var(--frost);
+}
+.cap {
+  position: absolute;
+  max-width: min(62vw, 1080px);
+  text-shadow: 0 1px 24px rgb(14 20 23 / 0.35);
+}
+.cap-headline {
+  margin: 0.15em 0 0.25em;
+}
+.cap-headline.is-long {
+  font-size: calc(var(--fs-display) * 0.7);
+}
+.cap-line {
+  max-width: 34em;
+}
+.cap-eyebrow {
+  margin: 0;
+  color: var(--frost);
+  opacity: 0.86;
+}
+.cap-line {
+  margin: 0;
+  color: var(--frost);
+}
+.cap-closing {
+  margin: 0.6em 0 0;
+  opacity: 0;
+}
+.cap-hint {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 2.2em;
+  transition: opacity 0.6s var(--ease);
+}
+.cap-hint-line {
+  display: block;
+  width: 56px;
+  height: 1px;
+  background: var(--marigold);
+}
+.captions.started .cap-hint {
+  opacity: 0;
+}
+
+/* Type zones (docs/STORYBOARD.md): the area of frame the camera keeps calm. */
+.zone-tl {
+  left: var(--gutter);
+  top: calc(var(--header-h) + 4vh);
+}
+.zone-tr {
+  right: var(--gutter);
+  top: calc(var(--header-h) + 4vh);
+  text-align: right;
+}
+.zone-tr .cap-line {
+  margin-left: auto;
+}
+.zone-l {
+  left: var(--gutter);
+  top: 50%;
+  translate: 0 -50%;
+}
+.zone-r {
+  right: var(--gutter);
+  top: 50%;
+  translate: 0 -50%;
+}
+.zone-top {
+  left: var(--gutter);
+  top: calc(var(--header-h) + 3vh);
+  max-width: min(64vw, 1040px);
+}
+.zone-bottom {
+  left: var(--gutter);
+  bottom: 8vh;
+}
+
+/* Countdown numeral: outlined typography, not a HUD. */
+.countdown-num {
+  position: absolute;
+  font-family: var(--font-display);
+  font-size: var(--fs-countdown);
+  font-weight: 300;
+  line-height: 0.8;
+  color: transparent;
+  -webkit-text-stroke: 1px rgb(238 243 242 / 0.55);
+  font-variant-numeric: lining-nums;
+  opacity: 0;
+  visibility: hidden;
+  right: var(--gutter);
+  bottom: 1vw;
+}
+.captions[data-zone='r'] .countdown-num,
+.captions[data-zone='tr'] .countdown-num {
+  right: auto;
+  left: var(--gutter);
+}
+
+@media (max-width: 767px) {
+  .cap {
+    left: 16px;
+    right: 16px;
+    top: auto;
+    bottom: calc(env(safe-area-inset-bottom) + 84px);
+    translate: none;
+    max-width: none;
+    text-align: left;
+    padding: 28px 0 0;
+    isolation: isolate;
+  }
+  .cap::before {
+    content: '';
+    position: absolute;
+    inset: -40px -16px -84px;
+    z-index: -1;
+    background: linear-gradient(to bottom, rgb(14 20 23 / 0), rgb(14 20 23 / 0.35));
+  }
+  .countdown-num {
+    left: auto;
+    right: 8px;
+    top: calc(var(--header-h) + 8px);
+    bottom: auto;
+  }
+  .captions[data-zone] .countdown-num {
+    left: auto;
+    right: 8px;
+  }
+}
