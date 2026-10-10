@@ -34,10 +34,14 @@ export default function Captions() {
 
   useEffect(() => {
     const blocks = [...root.current!.querySelectorAll<HTMLElement>('.cap')]
-    const splits = blocks.map((b) => {
-      const h = b.querySelector('[data-headline]')!
-      return SplitText.create(h, { type: 'lines,words', mask: 'lines', autoSplit: true })
-    })
+    // Split lazily on first show: splitting all 13 headlines at load (and again when fonts land) was a ~60 ms long task.
+    const splits: (SplitText | null)[] = blocks.map(() => null)
+    const split = (i: number) =>
+      (splits[i] ??= SplitText.create(blocks[i].querySelector('[data-headline]')!, {
+        type: 'lines,words',
+        mask: 'lines',
+        autoSplit: true,
+      }))
     const numerals = [...root.current!.querySelectorAll<HTMLElement>('.countdown-num')]
     gsap.set(blocks, { autoAlpha: 0 })
     let shown = -1
@@ -47,7 +51,7 @@ export default function Captions() {
 
     const show = (i: number) => {
       const b = blocks[i]
-      const words = splits[i].words
+      const words = split(i).words
       const rest = b.querySelectorAll('.cap-eyebrow, .cap-line, .cap-hint')
       gsap.set(b, { autoAlpha: 1 })
       gsap.fromTo(words, { yPercent: 110 }, { yPercent: 0, duration: 0.9, ease: 'power3.out', stagger: 0.03 })
@@ -104,7 +108,7 @@ export default function Captions() {
     })
     return () => {
       off()
-      splits.forEach((s) => s.revert())
+      splits.forEach((s) => s?.revert())
     }
   }, [])
 
