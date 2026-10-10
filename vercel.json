@@ -5,11 +5,7 @@
   "outputDirectory": "dist",
   "cleanUrls": true,
   "git": {
-    "deploymentEnabled": {
-      "main": false,
-      "**": false,
-      "scene/31-media-refresh": true
-    }
+    "deploymentEnabled": false
   },
   "headers": [
     {
