@@ -1,5 +1,6 @@
 import Film from './film/Film'
 import Quality from './sections/Quality'
+import People from './sections/People'
 import './sections/sections.css'
 import Header from './ui/Header'
 import Loader from './ui/Loader'
@@ -18,6 +19,7 @@ export default function App() {
       <main id="main">
         <Film />
         <Quality />
+        <People />
       </main>
       <StickyRfq />
       <Loader />
