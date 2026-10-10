@@ -25,7 +25,7 @@ export default function Quality() {
     return () => ctx.revert()
   }, [])
   return (
-    <section ref={ref} id="quality" className="sec sec-light on-light" aria-labelledby="quality-title">
+    <section ref={ref} id="quality" className="sec sec-field" aria-labelledby="quality-title">
       <div className="sec-inner">
         <p className="eyebrow">Quality &amp; facility</p>
         <h2 id="quality-title" className="h2 sec-title">

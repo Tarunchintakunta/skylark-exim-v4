@@ -40,7 +40,7 @@ export default function NowForward() {
     return off
   }, [])
   return (
-    <section ref={ref} id="now-forward" className="sec-light on-light nf" aria-labelledby="nf-title">
+    <section ref={ref} id="now-forward" className="sec-field nf" aria-labelledby="nf-title">
       <div className="nf-stage">
         <ol className="nf-steps" aria-label="Our work flow, forwards">
           {steps.map((s) => (
