@@ -1,4 +1,7 @@
 .captions {
+  /* The scrim takes the chapter's dark field colour (COLOR_SCRIPT 4) instead of neutral ink. */
+  --scrim-strong: color-mix(in srgb, var(--ch-bg-a) 72%, transparent);
+  --scrim-soft: color-mix(in srgb, var(--ch-bg-a) 30%, transparent);
   position: absolute;
   inset: 0;
   pointer-events: none;
@@ -68,8 +71,7 @@
 }
 .cap-eyebrow {
   margin: 0;
-  color: var(--frost);
-  opacity: 0.86;
+  color: var(--ch-accent);
 }
 .cap-line {
   margin: 0;
@@ -90,7 +92,7 @@
   display: block;
   width: 56px;
   height: 1px;
-  background: var(--marigold);
+  background: var(--ch-accent);
 }
 .captions.started .cap-hint {
   opacity: 0;
@@ -137,7 +139,7 @@
   font-weight: 300;
   line-height: 0.8;
   color: transparent;
-  -webkit-text-stroke: 1px rgb(238 243 242 / 0.55);
+  -webkit-text-stroke: 1px color-mix(in srgb, var(--ch-accent) 60%, transparent);
   font-variant-numeric: lining-nums;
   opacity: 0;
   visibility: hidden;
