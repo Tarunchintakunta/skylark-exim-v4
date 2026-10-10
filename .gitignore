@@ -10,3 +10,4 @@ playwright-report/
 .DS_Store
 .omc/
 src/config/media.json
+.env*
