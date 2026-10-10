@@ -408,3 +408,263 @@
     order: 2;
   }
 }
+
+/* 3D overlay (Zoi layering: DOM words under a transparent canvas) */
+.stage3d {
+  position: fixed;
+  inset: 0;
+  z-index: 5;
+  pointer-events: none;
+  opacity: 0;
+}
+.canvas3d {
+  width: 100% !important;
+  height: 100% !important;
+}
+
+/* B1 Now forward */
+.nf {
+  height: 240vh;
+  position: relative;
+}
+.nf-stage {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+}
+.nf-steps {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+}
+.nf-step {
+  grid-area: 1 / 1;
+  white-space: nowrap;
+  font-size: min(16vw, 260px);
+  color: var(--glaze);
+  transform: translate3d(110vw, 0, 0);
+  will-change: transform;
+}
+.nf-n {
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--steel);
+}
+.nf-copy {
+  position: absolute;
+  left: var(--gutter);
+  bottom: 9vh;
+  max-width: 36em;
+  z-index: 6;
+}
+.nf-title {
+  margin: 0 0 0.2em;
+  font-size: min(7vw, 120px);
+}
+.nf-link {
+  display: inline-flex;
+  align-items: center;
+  min-height: 44px;
+  color: var(--lagoon);
+  font-weight: 600;
+}
+@media (max-width: 767px) {
+  .nf {
+    height: 180vh;
+  }
+  .nf-steps {
+    place-items: start;
+    align-content: start;
+    padding: calc(var(--header-h) + 12px) 16px 0;
+    gap: 0;
+  }
+  .nf-step {
+    grid-area: auto;
+    transform: none;
+    font-size: 7vw;
+    line-height: 1.15;
+  }
+  .nf-copy {
+    left: 16px;
+    right: 16px;
+    bottom: 96px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .nf {
+    height: auto;
+  }
+  .nf-stage {
+    position: relative;
+    height: auto;
+    padding: 120px var(--gutter);
+  }
+  .nf-steps {
+    position: static;
+    display: block;
+  }
+  .nf-step {
+    transform: none;
+    font-size: 40px;
+  }
+  .nf-copy {
+    position: static;
+    margin-top: 40px;
+  }
+}
+.nf-copy {
+  opacity: 0;
+  transition: opacity 0.6s var(--ease);
+}
+.nf-copy.is-on {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nf-copy {
+    opacity: 1;
+  }
+}
+
+.nf-copy {
+  opacity: 0;
+  transition: opacity 0.6s var(--ease);
+}
+.nf-copy.is-on {
+  opacity: 1;
+}
+@media (prefers-reduced-motion: reduce) {
+  .nf-copy {
+    opacity: 1;
+  }
+}
+
+/* B2 Products */
+.products {
+  background: var(--ink);
+}
+.prod-intro {
+  padding: clamp(96px, 14vh, 160px) var(--gutter) 0;
+}
+.prod-stage {
+  height: 120vh;
+  position: relative;
+}
+.prod-sticky {
+  position: sticky;
+  top: 0;
+  height: 100vh;
+  overflow: hidden;
+  display: grid;
+  place-items: center;
+}
+.prod-word {
+  margin: 0;
+  font-family: var(--font-display);
+  font-weight: 300;
+  font-size: min(24vw, 420px);
+  line-height: 1;
+  color: transparent;
+  -webkit-text-stroke: 1.5px var(--glaze);
+  white-space: nowrap;
+}
+.prod-meta {
+  position: absolute;
+  left: var(--gutter);
+  bottom: 8vh;
+  z-index: 6;
+}
+.prod-meta .h2 {
+  margin: 4px 0 12px;
+}
+.prod-enquire,
+.prod-list button {
+  min-height: 44px;
+  padding: 0 4px;
+  background: none;
+  border: 0;
+  color: var(--marigold);
+  font-weight: 600;
+  cursor: pointer;
+  text-decoration: underline;
+  text-underline-offset: 4px;
+}
+.prod-lists {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: clamp(40px, 6vw, 120px);
+  padding: 96px var(--gutter) clamp(96px, 14vh, 160px);
+}
+.prod-list {
+  list-style: none;
+  margin: 12px 0 0;
+  padding: 0;
+}
+.prod-list li {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  border-top: 1px solid rgb(238 243 242 / 0.12);
+  font-family: var(--font-display);
+  font-size: 28px;
+}
+.prod-species {
+  color: var(--glaze);
+  margin: 32px 0;
+}
+.prod-forms {
+  width: 100%;
+  border-collapse: collapse;
+}
+.prod-forms caption {
+  text-align: left;
+  color: var(--glaze);
+  padding-bottom: 8px;
+}
+.prod-forms th,
+.prod-forms td {
+  text-align: left;
+  padding: 10px 12px 10px 0;
+  border-top: 1px solid rgb(238 243 242 / 0.12);
+  font-weight: 400;
+}
+.prod-forms thead th {
+  color: var(--glaze);
+  font-size: 13px;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.prod-states {
+  margin-top: 32px;
+  font-family: var(--font-display);
+  font-size: 28px;
+}
+@media (max-width: 767px) {
+  .prod-sticky {
+    place-items: start center;
+    padding-top: calc(var(--header-h) + 8px);
+  }
+  .prod-word {
+    font-size: 22vw;
+    -webkit-text-stroke-width: 1px;
+  }
+  .prod-lists {
+    grid-template-columns: 1fr;
+  }
+  .prod-meta {
+    left: 16px;
+    bottom: 96px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .prod-stage {
+    height: auto;
+  }
+  .prod-sticky {
+    position: relative;
+    height: 60vh;
+  }
+}
