@@ -23,3 +23,42 @@
 .stage-video.is-on {
   opacity: 1;
 }
+
+.static-chapter {
+  position: relative;
+  min-height: 100vh;
+  display: flex;
+  align-items: flex-end;
+}
+.static-chapter img {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+.static-cap {
+  position: relative;
+  padding: 0 var(--gutter) 10vh;
+  max-width: 1080px;
+  isolation: isolate;
+}
+.static-cap::before {
+  content: '';
+  position: absolute;
+  inset: -80px -100vw 0 -100vw;
+  z-index: -1;
+  background: linear-gradient(to bottom, rgb(14 20 23 / 0), rgb(14 20 23 / 0.45));
+}
+.static-headline {
+  font-size: min(7vw, 120px);
+  margin: 0.1em 0 0.25em;
+}
+.static-num {
+  font-family: var(--font-display);
+  font-size: 96px;
+  line-height: 1;
+  margin: 0;
+  color: transparent;
+  -webkit-text-stroke: 1px var(--frost);
+}

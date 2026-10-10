@@ -2,18 +2,24 @@ import { useEffect, useRef, type ReactNode } from 'react'
 import { chapters } from '../config/chapters'
 import { posterUrl } from '../config/media'
 import { onTick } from '../engine/clock'
-import { isMobile, pickTier } from '../engine/env'
+import { isMobile, pickTier, reducedMotion } from '../engine/env'
 import { scrollStore } from '../engine/scrollStore'
 import { VideoPool } from './VideoPool'
 import Captions from './Captions'
+import StaticFilm from './StaticFilm'
 import './film.css'
 
 const tier = pickTier()
+if (reducedMotion) scrollStore.inFilm = false
 const lengths = chapters.map((c) => (isMobile ? (c.mobileVh ?? c.vh * 0.8) : c.vh))
 const totalVh = lengths.reduce((a, b) => a + b, 0)
 
-/** Pinned full-bleed stage; scroll maps linearly onto chapter clips (docs/STORYBOARD.md conventions). */
 export default function Film({ children }: { children?: ReactNode }) {
+  return reducedMotion ? <StaticFilm tier={tier} /> : <ScrollFilm>{children}</ScrollFilm>
+}
+
+/** Pinned full-bleed stage; scroll maps linearly onto chapter clips (docs/STORYBOARD.md conventions). */
+function ScrollFilm({ children }: { children?: ReactNode }) {
   const section = useRef<HTMLElement>(null)
   const poster = useRef<HTMLImageElement>(null)
   const videos = useRef<HTMLVideoElement[]>([])
