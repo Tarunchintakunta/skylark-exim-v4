@@ -20,7 +20,7 @@ start=$(date +%s)
 if [ "$mode" = preview ]; then
   out="assets-src/render/preview/$b"; [ $# -lt 3 ] && [ "${DRY:-0}" != 1 ] && rm -rf "$out"; mkdir -p "$out" docs/renders
   py="import bpy; s=bpy.context.scene; s.render.resolution_x=1920; s.render.resolution_y=1080; s.render.resolution_percentage=50; s.eevee.taa_render_samples=16; s.render.use_motion_blur=False; s.render.use_overwrite=True; s.render.image_settings.file_format='PNG'; s.render.filepath='$PWD/$out/'"
-  run "${keep[@]}" "$BLENDER" -b "$file" --python-expr "$py" -s "$F" -e "$L" -a
+  run "${keep[@]}" "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -s "$F" -e "$L" -a
   run ffmpeg -v error -y -framerate 24 -start_number "$F" -i "$out/%04d.png" -c:v libx264 -crf 26 -pix_fmt yuv420p -movflags +faststart "docs/renders/$b-preview.mp4"
   run scripts/contact-sheet.sh "docs/renders/$b-preview.mp4" "docs/renders/$b-sheet.jpg" 12
   [ "${DRY:-0}" = 1 ] || echo "preview $b frames $F-$L in $(( ($(date +%s)-start)/60 )) min: docs/renders/$b-preview.mp4 ($(( $(fsize "docs/renders/$b-preview.mp4") / 1024 )) KB, keep <= 4096 KB) + docs/renders/$b-sheet.jpg"
@@ -28,6 +28,6 @@ elif [ "$mode" = full ]; then
   out="assets-src/render/$dir"; mkdir -p "$out"
   ow=False; [ "${FORCE:-0}" = 1 ] && ow=True
   py="import bpy; s=bpy.context.scene; s.render.use_overwrite=$ow; s.render.filepath='$PWD/$out/'"
-  run "${keep[@]}" "$BLENDER" -b "$file" --python-expr "$py" -s "$F" -e "$L" -a
+  run "${keep[@]}" "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -s "$F" -e "$L" -a
   [ "${DRY:-0}" = 1 ] || echo "full render $b frames $F-$L done in $(( ($(date +%s)-start)/60 )) min -> $out"
 else echo "mode must be preview or full"; exit 1; fi
