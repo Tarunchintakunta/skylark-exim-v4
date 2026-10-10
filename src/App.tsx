@@ -1,18 +1,29 @@
+import { lazy, Suspense, useEffect, useState } from 'react'
 import Film from './film/Film'
-import NowForward from './sections/NowForward'
-import Products from './sections/Products'
-import Stage3D from './three/Stage3D'
-import Quality from './sections/Quality'
-import Markets from './sections/Markets'
-import People from './sections/People'
-import Quote from './sections/Quote'
-import Footer from './sections/Footer'
-import './sections/sections.css'
 import Header from './ui/Header'
 import Loader from './ui/Loader'
-import StickyRfq from './ui/StickyRfq'
+
+// Split the first frame from the rest: the sections below the film (and zod, three, their CSS) parse and lay out in
+// their own chunk once the browser is idle, so the load frame stays well under 50 ms (QUALITY_GATES G-SITE-5).
+const Rest = lazy(() => import('./Rest'))
+const Footer = lazy(() => import('./Rest').then((m) => ({ default: m.Footer })))
+
+function useIdle(timeout = 800) {
+  const [idle, setIdle] = useState(false)
+  useEffect(() => {
+    const go = () => setIdle(true)
+    if ('requestIdleCallback' in window) {
+      const id = requestIdleCallback(go, { timeout })
+      return () => cancelIdleCallback(id)
+    }
+    const t = setTimeout(go, 200)
+    return () => clearTimeout(t)
+  }, [timeout])
+  return idle
+}
 
 export default function App() {
+  const idle = useIdle()
   return (
     <>
       <a className="skip-link" href="#main">
@@ -24,18 +35,9 @@ export default function App() {
       <Header />
       <main id="main">
         <Film />
-        <div data-3d-zone>
-          <NowForward />
-          <Products />
-        </div>
-        <Quality />
-        <Markets />
-        <People />
-        <Quote />
+        <Suspense fallback={null}>{idle && <Rest />}</Suspense>
       </main>
-      <Footer />
-      <Stage3D models={['carton', 'tuna', 'prawn']} />
-      <StickyRfq />
+      <Suspense fallback={null}>{idle && <Footer />}</Suspense>
       <Loader />
     </>
   )
