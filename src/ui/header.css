@@ -8,6 +8,7 @@
   justify-content: space-between;
   padding: 0 var(--gutter);
   color: var(--frost);
+  background: linear-gradient(rgb(14 20 23 / 0.45), transparent);
   transition:
     opacity 0.5s var(--ease),
     transform 0.5s var(--ease);
