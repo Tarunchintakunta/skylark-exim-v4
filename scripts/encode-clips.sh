@@ -2,7 +2,7 @@
 # Encode scroll-scrub clips: assets-src/video/<id>.mp4 -> public/media/<id>_1920.mp4, <id>_1280.mp4, <id>_960.mp4
 # Scrub-friendly H.264: GOP 6 (keyint 6, no scene-cut keyframes), NO B-frames, faststart, no audio, yuv420p, 24 fps.
 # Hard cap: EVERY tier file <= 2,250 KB. The script starts at a per-tier CRF and raises it (max 34, light denoise from 31) until under the cap.
-# Usage: scripts/encode-clips.sh [id ...]   (no ids = every master in assets-src/video)    Env: SRC OUT FORCE=1 CAP_KB=2250 MAXCRF=34
+# Usage: scripts/encode-clips.sh [id ...]   (no ids = every master in assets-src/video)    Env: SRC OUT FORCE=1 CAP_KB=2250 MAXCRF=34 ONLY="1280 960" (re-encode only these tiers)
 set -euo pipefail
 cd "$(dirname "$0")/.."; source scripts/scenes.sh
 SRC="${SRC:-assets-src/video}"; OUT="${OUT:-public/media}"; CAP_KB="${CAP_KB:-2250}"
@@ -16,6 +16,7 @@ for id in "${ids[@]}"; do
   line="$id"
   for spec in "1920 24" "1280 25" "960 26"; do
     set -- $spec; w=$1; crf=$2; o="$OUT/${id}_${w}.mp4"
+    [ -n "${ONLY:-}" ] && ! echo " $ONLY " | grep -q " $w " && continue
     if [ -f "$o" ] && [ "${FORCE:-0}" != 1 ]; then line="$line  ${w}: $(( $(fsize "$o")/1024 )) KB (kept)"; continue; fi
     while :; do
       dn=""; [ "$crf" -ge 31 ] && dn=",hqdn3d=1.5:1.5:4:4"

@@ -14,6 +14,6 @@ for spec in "1920 1280 33554432 desktop" "1280 1280 23068672 laptop" "960 960 14
   for m in public/models/*.glb; do t=$(( t + $(sz "$m") )); done
   mw=1920; [ "$w" = 960 ] && mw=960; t=$(( t + $(sz "public/media/markets-map_${mw}.webp") ))
   flag=""; [ $t -gt $cap ] && { flag="  !! over budget"; rc=1; }
-  echo "$name ($w): $(awk "BEGIN{printf \"%.1f\", $t/1048576}") MB of $(( cap/1048576 )) MB$flag${miss:+  (missing:$miss)}"
+  echo "$name ($w): $(awk -v t="$t" 'BEGIN{printf "%.1f", t/1048576}') MB of $(( cap/1048576 )) MB$flag${miss:+  (missing:$miss)}"
 done
 exit $rc
