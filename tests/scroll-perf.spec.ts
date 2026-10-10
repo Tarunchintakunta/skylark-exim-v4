@@ -17,10 +17,16 @@ test('scripted full scroll: long tasks, rAF p95, stalls', async ({ page, browser
     await cdp.send('Emulation.setCPUThrottlingRate', { rate: 4 })
   }
   await ready(page)
+  // G-SITE-5 counts long tasks during the scroll AFTER load: wait for an idle period, then only count tasks that start
+  // after it (an observer created mid-frame otherwise also receives the last load frame).
+  await page.evaluate(() => new Promise((r) => requestIdleCallback(() => r(null), { timeout: 2000 })))
   await page.evaluate(() => {
     const w = window as unknown as { __perf: { long: number[]; frames: number[] } }
     w.__perf = { long: [], frames: [] }
-    new PerformanceObserver((l) => l.getEntries().forEach((e) => w.__perf.long.push(e.duration))).observe({
+    const t0 = performance.now()
+    new PerformanceObserver((l) =>
+      l.getEntries().forEach((e) => e.startTime >= t0 && w.__perf.long.push(e.duration)),
+    ).observe({
       type: 'longtask',
       buffered: false,
     })
