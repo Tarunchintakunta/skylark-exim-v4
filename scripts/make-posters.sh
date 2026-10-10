@@ -13,10 +13,11 @@ webp(){ local in=$1 o=$2 w=$3 q=$4; shift 4
   else ffmpeg -v error -y "$@" -i "$in" -frames:v 1 -update 1 -vf "scale=$w:-2:flags=lanczos" "$o.png" && cwebp -quiet -q "$q" "$o.png" -o "$o" && rm -f "$o.png"; fi; }
 shot(){ # in out width max_kb seek_args...
   local in=$1 o=$2 w=$3 max=$4; shift 4; local q
-  for q in 78 72 66 60 54; do
+  for q in 78 72 66 60 54 46 38 30 22; do
     webp "$in" "$o" "$w" "$q" "$@"
-    [ $(( $(fsize "$o")/1024 )) -le "$max" ] && break
-  done; }
+    [ $(( $(fsize "$o")/1024 )) -le "$max" ] && return 0
+  done
+  echo "  note: $(basename "$o") $(( $(fsize "$o")/1024 )) KB is over its ${max} KB budget at q22" >&2; }
 for id in "${ids[@]}"; do
   in="$SRC/$id.mp4"; [ -f "$in" ] || { echo "skip $id"; continue; }
   shot "$in" "$OUT/${id}_1920.webp" 1920 180
