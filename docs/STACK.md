@@ -33,7 +33,10 @@ Merge strictly in this order; after each merge GitHub retargets the next PR to m
 | 26  | #58 | scene/14-reefer          | #14                               |
 | 27  | #59 | scene/18-plant-cold      | #18                               |
 | 28  | #60 | scene/19-plant-line      | #19                               |
-| 29  | #61 | scene/31-media-refresh   | #31 (also covers #20, #32 report) |
+| 29  | #63 | infra/30-git-preview     | #30                               |
+| 30  | #64 | perf/62-load-long-task   | #62                               |
+| 31  | #66 | asset/65-turntables      | #65                               |
+| 32  | #61 | scene/31-media-refresh   | #31 (also covers #20, #32 report) |
 
 Note the table order, not the PR numbers: #51 (asset/11) sits below #49, and #52 (perf/29) sits above #50.
-#63 holds the reverted Git-deploy attempt (deploys stay off; #30 stays needs-tarun, see docs/REPORT.md). The morning report is committed on the top branch (#61).
+#66 adds the product turntable fallbacks. #63 holds the reverted Git-deploy attempt (deploys stay off; #30 stays needs-tarun, see docs/REPORT.md). The morning report is committed on the top branch (#61).
