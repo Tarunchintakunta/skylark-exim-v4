@@ -1,0 +1,48 @@
+@font-face {
+  font-family: 'Fraunces';
+  src: url('/fonts/fraunces.woff2') format('woff2');
+  font-weight: 100 600;
+  font-style: normal;
+  font-display: swap;
+}
+@font-face {
+  font-family: 'Hanken Grotesk';
+  src: url('/fonts/hanken-grotesk.woff2') format('woff2');
+  font-weight: 100 900;
+  font-style: normal;
+  font-display: swap;
+}
+
+.display {
+  font-family: var(--font-display);
+  font-size: var(--fs-display);
+  font-weight: 340;
+  font-optical-sizing: auto;
+  line-height: 0.98;
+  letter-spacing: -0.02em;
+}
+.h2 {
+  font-family: var(--font-display);
+  font-size: var(--fs-h2);
+  font-weight: 360;
+  line-height: 1.04;
+  letter-spacing: -0.015em;
+}
+.eyebrow {
+  font-family: var(--font-text);
+  font-size: var(--fs-eyebrow);
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.14em;
+}
+.lede {
+  font-size: var(--fs-body);
+  line-height: 1.5;
+  max-width: 34em;
+}
+.tnum {
+  font-variant-numeric: tabular-nums;
+}
+.nowrap {
+  white-space: nowrap;
+}
