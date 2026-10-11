@@ -1659,7 +1659,9 @@ look.grade(S, lift='#1e2a4f', gain='#cfe0ff', sat=1.15, lift_amt=0.008, gain_amt
 # lead note: look.apply no longer adds world fog. Closed interiors only: density 0 at the exterior door frames (f1-39),
 # small values inside (luma checked), so the dusk sky/sun at BRIDGE_DOOR is never absorbed.
 FOG = look.fog(S, '#b9c8ff', 0.0) or S.world.node_tree.nodes['SK_FOG']
-for f, (h, d) in ((1, ('#b9c8ff', 0.0)), (40, ('#b9c8ff', 0.0025)), (176, ('#b9c8ff', 0.0025)), (215, ('#dfe9f5', 0.0015)),
+# lead r6: ANY non-zero world-volume density blacks out the dusk sky + sun in EEVEE (f3-14 went to luma 5) -> exactly 0 until
+# the sky is mixed out (f64, camera well inside), then ramp in
+for f, (h, d) in ((1, ('#b9c8ff', 0.0)), (66, ('#b9c8ff', 0.0)), (100, ('#b9c8ff', 0.0025)), (176, ('#b9c8ff', 0.0025)), (215, ('#dfe9f5', 0.0015)),
                   (383, ('#dfe9f5', 0.0015)), (430, ('#cfefff', 0.004)), (520, ('#cfefff', 0.004)), (560, ('#cfefff', 0.0015))):
     FOG.inputs['Color'].default_value = (*look.hex_rgb(h), 1)
     FOG.inputs['Density'].default_value = d

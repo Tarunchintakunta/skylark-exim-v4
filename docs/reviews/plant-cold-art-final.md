@@ -42,3 +42,10 @@ All ok.
 
 Known issues: f1 bars are a touch darker on their shaded side than port's (SSIM 0.942); the lead equalises the exact shared frame.
 Packing-hall highlights near the doorway rim bloom hot (f300-340 table edges). f574 sd 18 (ok, under the aim of 20): belt top-down stays pale steel-white.
+
+## Fix r6 (lead: f3-14 near-black)
+Cause: world fog density was keyed 0 (f1) -> 0.0025 (f40); from f3 (2e-5) any non-zero EEVEE world volume absorbs the whole dusk sky + sun -> luma 5-46.
+Fix: fog density held at exactly 0 through f66 (sky mixed out at f64, camera inside), Bezier ramp to 0.0025 by f100. f2-110 re-rendered
+(12 min, avg 6.2 s, max 8 s); f1 untouched (it is the lead's equalised frame = port 0264, SSIM 1.0; my render kept as 0001.png.own).
+Luma on every frame f1-110: min 112 (f110), f1-40 range 132-146, no FAIL. Joins: f39->40->41->42 frame SSIM 0.77/0.66/0.63 (strip-curtain push,
+camera motion), luma 140/136/129/129; f110->111 SSIM 0.67, luma 112/112 -> no pop.
