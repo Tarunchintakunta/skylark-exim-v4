@@ -26,12 +26,16 @@ import bpy  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 
 import sklib  # noqa: E402
+import look  # noqa: E402  (art pass, COLOR_SCRIPT rows 03-05)
 
 D2R = math.pi / 180
 T0 = time.time()
 S = sklib.reset()
 S.frame_start, S.frame_end = 1, 574
 RNG = random.Random(707)
+# art-pass tunables
+ART_SKY_VIOLET, ART_SKY_NEUTRAL = 0.45, '#b4adb8'   # matched to port 0264 (lavender-pink face)
+ART_SKY, ART_SUN, ART_WORLD_IN, ART_FILL, ART_RIM = 1.3, 5.0, 3.0, 0.45, 1.3
 
 
 # ------------------------------------------------------------------------------------------------------------ helpers
@@ -170,7 +174,7 @@ def glass(name='glass_door'):
 
 def pvc_strip():
     m = sklib.flat('pvc_strip', (0.80, 0.86, 0.87), rough=0.06, var=0.04, scale=12, bump=0.03,
-                   **{'Alpha': 0.16, 'Coat Weight': 0.8, 'Coat Roughness': 0.03})
+                   **{'Alpha': 0.11, 'Coat Weight': 0.8, 'Coat Roughness': 0.03})
     m.use_transparent_shadow = True
     return m
 
@@ -213,7 +217,7 @@ def water_film(name='wet_film'):
     return m
 
 
-def mist_mat(name, density=0.25, scale=1.2, drift=(0.012, 0.0, 0.004)):
+def mist_mat(name, density=0.25, scale=1.2, drift=(0.012, 0.0, 0.004), colour='#eaf2f7'):
     """Principled Volume, noise-shaped density, drifting with the frame (driver, no Python at render)."""
     m = bpy.data.materials.get(name)
     if m:
@@ -221,7 +225,7 @@ def mist_mat(name, density=0.25, scale=1.2, drift=(0.012, 0.0, 0.004)):
     m, nt = sklib._new_mat(name)
     out = sklib._n(nt, 'ShaderNodeOutputMaterial', 900, 0)
     pv = sklib._n(nt, 'ShaderNodeVolumePrincipled', 600, 0)
-    pv.inputs['Color'].default_value = (0.92, 0.95, 0.97, 1)
+    pv.inputs['Color'].default_value = (*look.hex_rgb(colour), 1)
     pv.inputs['Anisotropy'].default_value = 0.3
     sklib._l(nt, pv.outputs[0], out.inputs['Volume'])
     tc = sklib._n(nt, 'ShaderNodeTexCoord', -1000, 0)
@@ -255,15 +259,15 @@ def mist_box(name, c, size, mat, col):
 
 
 # shared materials
-PUF = sklib.painted_metal((0.80, 0.81, 0.80), wear=0.08, streaks=0.0, contrast=0.25)
+PUF = sklib.painted_metal((0.56, 0.62, 0.72), wear=0.22, streaks=0.15, contrast=0.45)   # art: cool blue-white + grime
 PUF_FROST = frostify(PUF, 0.35, 0.3, 3.0)
 STAINLESS = sklib.stainless(0.08)
 BRUSHED = sklib.pbr('stainless_brushed', 'blue_metal_plate', tint=(0.66, 0.67, 0.68), rough=(0.32, 0.55), metal=1.0, nor=0.3,
                     wear=0.08, wear_color=(0.4, 0.38, 0.35), var=0.04, scale=0.5, contrast=0.3)
 STAIN_FROST = frostify(BRUSHED, 0.6, 0.4, 4.0)
 RUBBER = sklib.plastic((0.025, 0.025, 0.025), 0.2, name='rubber_black')
-FLOOR_COLD = sklib.epoxy_floor((0.58, 0.60, 0.60), wear=0.25)
-FLOOR_PACK = sklib.epoxy_floor((0.50, 0.57, 0.54), wear=0.18)
+FLOOR_COLD = sklib.epoxy_floor((0.26, 0.30, 0.40), wear=0.45)
+FLOOR_PACK = sklib.epoxy_floor((0.17, 0.27, 0.40), wear=0.35)
 LINE_YEL = sklib.epoxy_floor((0.78, 0.56, 0.05), wear=0.4)
 KERB = sklib.pbr('kerb_concrete', 'concrete_floor_02', tint=(0.62, 0.62, 0.6), wear=0.3, ao_dist=0.2)
 GALV = sklib.galvanised(0.15)
@@ -499,7 +503,7 @@ for i in range(nstr):
     sklib.ease_keys(st)
 
 # ---- cold mist at the door (falls out low), plus a faint layer along the dock floor
-mist_box('cold_mist_door', (0.4, 0, 0.55), (3.6, 2.8, 1.1), mist_mat('mist_door', 0.12, 1.4, (0.02, 0.0, 0.0)), C_CUR)
+mist_box('cold_mist_door', (0.4, 0, 0.55), (3.6, 2.8, 1.1), mist_mat('mist_door', 0.04, 1.4, (0.02, 0.0, 0.0), '#b9c8ff'), C_CUR)
 
 
 # ---- high-bay racking: 10 bays x 5 levels per row, 5 rows (instanced), frosted
@@ -651,15 +655,18 @@ for i, x in enumerate((-9.0, -21.0)):
     evaporator('EVAP.left.%d' % i, (x, Y_L + 0.6, 9.2), math.pi / 2, C_EVAP)
 
 # ---- cold store LED high-bay fixtures (emissive bodies) + area lights
-LED = emissive('led_5000', 5000, 14.0)
+LED = emissive('led_5000', 7000, 14.0)   # art: cool high-bay LEDs
 C_LT = coll('LIGHTS')
 
 
-def area(name, loc, size, power, k=5000, rot=(0, 0, 0), shadow=True, spread=180):
+LIGHT_K = 0.6
+
+
+def area(name, loc, size, power, k=5000, rot=(0, 0, 0), shadow=True, spread=180, hexc=None):
     # ponytail: only key lights cast shadows (EEVEE shadow buffer overflowed with ~40 shadowed area lights)
     L = bpy.data.lights.new(name, 'AREA')
     L.shape, L.size, L.size_y = 'RECTANGLE', size[0], size[1]
-    L.energy, L.color = power, sklib.kelvin_rgb(k)
+    L.energy, L.color = power * LIGHT_K, (look.hex_rgb(hexc) if hexc else sklib.kelvin_rgb(k))
     L.use_shadow = shadow
     L.spread = spread * D2R
     return sklib.new_obj(name, L, C_LT, loc=loc, rot=rot)
@@ -672,10 +679,10 @@ for x in (-3.0, -8.5, -14.0, -19.5, -25.0):
         bx(bm, (0, 0, -0.005), (0.26, 2.94, 0.01), 1)
         bm_obj('led_cold_%g_%g' % (x, y), bm, [STAINLESS, LED], C_LT, bev=0.004).location = (x, y, H_COLD - 0.2)
 # ponytail: few big area lights (39 small ones cost ~3x per frame); emissive fixtures above stay as the visible LEDs
-area('L_cold_main_a', (-8.0, 0.0, H_COLD - 0.3), (11.0, 1.2), 2250, shadow=True)
-area('L_cold_main_b', (-19.5, 0.0, H_COLD - 0.3), (11.0, 1.2), 2250, shadow=True)
-area('L_cold_aisle2', (-14.0, 5.5, H_COLD - 0.3), (22.0, 1.2), 4500, shadow=False)
-area('L_cold_aisle3', (-14.0, 10.9, H_COLD - 0.3), (22.0, 1.2), 4500, shadow=False)
+area('L_cold_main_a', (-8.0, 0.0, H_COLD - 0.3), (11.0, 1.2), 2250, shadow=True, hexc='#cfe0ff')
+area('L_cold_main_b', (-19.5, 0.0, H_COLD - 0.3), (11.0, 1.2), 2250, shadow=True, hexc='#cfe0ff')
+area('L_cold_aisle2', (-14.0, 5.5, H_COLD - 0.3), (22.0, 1.2), 4500, shadow=False, hexc='#cfe0ff')
+area('L_cold_aisle3', (-14.0, 10.9, H_COLD - 0.3), (22.0, 1.2), 4500, shadow=False, hexc='#cfe0ff')
 
 
 # ---- electric reach truck (A-FORKLIFT) with operator P-COLD-1, the hero pallet + hero carton on top
@@ -859,10 +866,10 @@ for x in (-32.6, -36.8, -41.0, -45.2, -49.4, -53.6):
         bx(bm, (0, 0, -0.002), (1.18, 0.58, 0.004), 1)
         bm_obj('led_pack_%g_%g' % (x, y), bm, [sklib.aluminium(0.05), LED], C_LT, bev=0.004).location = (x, y, PH - 0.04)
 
-area('L_pack_line_a', (-36.8, 1.2, PH - 0.1), (8.0, 1.4), 1560, shadow=True)
-area('L_pack_line_b', (-45.2, 1.2, PH - 0.1), (8.0, 1.4), 1560, shadow=True)
-area('L_pack_left', (-43.0, -2.4, PH - 0.1), (21.0, 1.0), 1560, shadow=False)
-area('L_pack_right', (-43.0, 4.8, PH - 0.1), (21.0, 1.0), 1560, shadow=False)
+area('L_pack_line_a', (-36.8, 1.2, PH - 0.1), (8.0, 1.4), 1560, shadow=True, hexc='#f2f6ff')
+area('L_pack_line_b', (-45.2, 1.2, PH - 0.1), (8.0, 1.4), 1560, shadow=True, hexc='#f2f6ff')
+area('L_pack_left', (-43.0, -2.4, PH - 0.1), (21.0, 1.0), 1560, shadow=False, hexc='#f2f6ff')
+area('L_pack_right', (-43.0, 4.8, PH - 0.1), (21.0, 1.0), 1560, shadow=False, hexc='#f2f6ff')
 
 # ---- glazed sliding door (cold store -> packing hall), opens f196-220
 C_GD = coll('GLAZED_DOOR')
@@ -888,6 +895,16 @@ for s in (-1, 1):
     key(leaf, 'location', [(1, (-30.28, s * 0.5, 0)), (196, (-30.28, s * 0.5, 0)), (220, (-30.28, s * 1.45, 0)),
                            (262, (-30.28, s * 1.45, 0)), (300, (-30.28, s * 0.5, 0))])
     sklib.ease_keys(leaf)
+
+
+# yellow steel bollards either side of the glazed door (cold-store side), frosted
+bm = bmesh.new()
+for y in (-1.45, 1.45):
+    cyl(bm, (-29.55, y, 0.6), 0.084, 1.2, 'Z', 20)
+    cyl(bm, (-29.55, y, 1.205), 0.07, 0.02, 'Z', 20)
+bm_obj('door_bollards', bm, frostify(sklib.painted_metal((0.80, 0.60, 0.04), 0.5, 0.1, 0.5), 0.4, 0.8, 4.0), C_GD, bev=0.01)
+box('door_threshold', (-29.7, 0, 0.004), (0.5, 2.2, 0.008), sklib.painted_metal((0.80, 0.60, 0.04), 0.6, 0.0, 0.5), 0.002,
+    col=C_GD)
 
 
 # ---- packing line equipment
@@ -1123,6 +1140,7 @@ def belt_mat(name='mesh_belt'):
         return m
     m, nt = sklib._new_mat(name)
     out = sklib._n(nt, 'ShaderNodeOutputMaterial', 1200, 0)
+    m.surface_render_method = 'DITHERED'   # full-r1: 'blended' belt sorted over the shrimp (white veil on the top-down)
     b = sklib._n(nt, 'ShaderNodeBsdfPrincipled', 900, 0)
     sklib._l(nt, b.outputs[0], out.inputs['Surface'])
     tc = sklib._n(nt, 'ShaderNodeTexCoord', -1400, 0)
@@ -1142,8 +1160,8 @@ def belt_mat(name='mesh_belt'):
     solid = sklib._math(nt, 'MAXIMUM', rod, wr, True, -100, 0)
     sklib._l(nt, sklib._maprange(nt, solid, 0.25, 0.35, 0.0, 1.0, 100, 0), b.inputs['Alpha'])
     nz = sklib._noise(nt, tc.outputs['Object'], 40.0, 4.0, 0.5, -300, -400)
-    sklib._l(nt, sklib._mix(nt, sklib._maprange(nt, nz.outputs['Fac'], 0.3, 0.7, 0, 1, 100, -400), (0.62, 0.63, 0.64),
-                            (0.72, 0.73, 0.74), 'MIX', 300, -300), b.inputs['Base Color'])
+    sklib._l(nt, sklib._mix(nt, sklib._maprange(nt, nz.outputs['Fac'], 0.3, 0.7, 0, 1, 100, -400), (0.40, 0.41, 0.42),
+                            (0.48, 0.49, 0.50), 'MIX', 300, -300), b.inputs['Base Color'])
     b.inputs['Metallic'].default_value = 1.0
     b.inputs['Roughness'].default_value = 0.28
     bp = sklib._n(nt, 'ShaderNodeBump', 600, -300)
@@ -1448,24 +1466,24 @@ spray = sklib.new_obj('A-IQF.glaze_spray', me, C_IQF, loc=(X_SPRAY, Y_OUT, BELT_
 spray.modifiers.new('spray', 'NODES').node_group = ng
 
 # cold vapour: out of both mouths (rolling forward/down) + a thin haze over the outfeed
-mist_box('iqf_vapour_out', (HX1 + 0.55, Y_OUT, BELT_Z + 0.25), (1.2, 1.5, 0.7), mist_mat('vapour_out', 0.3, 1.2, (-0.012, 0.0, 0.002)), C_IQF)
-mist_box('iqf_vapour_in', (HX1 + 0.45, Y_IN, BELT_Z + 0.3), (1.0, 1.5, 0.7), mist_mat('vapour_in', 0.22, 1.2, (-0.01, 0.0, 0.002)), C_IQF)
+mist_box('iqf_vapour_out', (HX1 + 0.55, Y_OUT, BELT_Z + 0.25), (1.2, 1.5, 0.7), mist_mat('vapour_out', 0.16, 1.2, (-0.012, 0.0, 0.002), '#cfefff'), C_IQF)
+mist_box('iqf_vapour_in', (HX1 + 0.45, Y_IN, BELT_Z + 0.3), (1.0, 1.5, 0.7), mist_mat('vapour_in', 0.12, 1.2, (-0.01, 0.0, 0.002), '#cfefff'), C_IQF)
 
 # IQF zone lights (cool LED 5000 K)
-area('L_iqf', (-47.6, (Y_OUT + Y_IN) / 2, PH - 0.1), (1.4, 3.2), 440, shadow=True)
+area('L_iqf', (-47.6, (Y_OUT + Y_IN) / 2, PH - 0.1), (1.4, 3.2), 440, shadow=True, hexc='#d6ecff')
 
 # ---- BRIDGE_BELT marker: belt surface point under the f574 camera (raw rows; belt UV offset 0 at f574)
 C_BB = coll('BRIDGE_BELT', C_IQF)
-X_BB = -48.95
+X_BB = -47.4          # full-r1: clear of the mouth vapour (top-down through mist was a white frame)
 BB = sklib.new_obj('BRIDGE_BELT', None, C_BB, loc=(X_BB, Y_IN, BELT_Z), rot=(0, 0, math.pi / 2))
 BB.empty_display_size = 0.5
-BB_LIGHT = area('L_BRIDGE_BELT', (X_BB, Y_IN, BELT_Z + 2.4), (1.2, 1.2), 180, 5000)
+BB_LIGHT = area('L_BRIDGE_BELT', (X_BB, Y_IN, BELT_Z + 2.4), (1.2, 1.2), 100, hexc='#d6ecff')   # 8000 K key
 C_LT.objects.unlink(BB_LIGHT)
 C_BB.objects.link(BB_LIGHT)
 
 # ---- packing + IQF staff (full PPE, masked, hairnets; varied bodies/skin/age)
 STAFF = [  # name, sex, age, pose, loc, rz, seed, skin, body, cycle
-    ('P-PLANT-1', 'male', 0.3, 'carry', (-33.4, 0.4), math.pi, 11, 0.7, {'height': 0.55}, 'work'),
+    ('P-PLANT-1', 'male', 0.3, 'carry', (-33.4, 0.4), -math.pi / 2, 11, 0.7, {'height': 0.55}, 'work'),
     ('P-PLANT-2', 'female', 0.45, 'work_table', (-38.35, 2.05), 0.0, 12, 0.5, {'weight': 0.6}, 'work'),
     ('P-PLANT-3', 'female', 0.25, 'work_table', (-40.4, 1.98), 0.0, 13, 0.4, None, 'work'),
     ('P-PLANT-4', 'female', 0.35, 'work_table', (-43.92, 1.66), 0.0, 14, 0.62, {'height': 0.4}, 'work'),
@@ -1484,7 +1502,7 @@ for i, (nm, sx, age, pose, (x, y), rz, sd, sk, bd, cyc) in enumerate(STAFF):
             if fc.data_path == 'location':
                 for k in fc.keyframe_points:
                     k.interpolation = 'LINEAR'
-carton_at('C.carried', (-33.4, 0.80, 0.83), math.pi / 2)
+carton_at('C.carried', (-33.8, 0.4, 0.83), 0.0)   # full-r1: carrier faces away from the camera (-x)
 # the IQF worker's tray of glazed shrimp (held at the hopper edge)
 table('iqf_check_table', (-46.42, 2.3), (0.5, 0.5), C_IQF, 0.9)
 tray2 = box('iqf_check_tray', (-46.38, 2.3, 0.915), (0.32, 0.44, 0.025), STAINLESS, 0.005, col=C_IQF)
@@ -1497,14 +1515,23 @@ point_cloud_obj('SHRIMP.tray', pts, C_IQF, ng_static, (-46.38, 2.3, 0.929))
 
 
 # ============================================================================================================ WORLD
-sklib.sky_world(sun_elev_deg=40, sun_az_deg=135, strength=1.0)
+# art (COLOR_SCRIPT §2 BRIDGE_DOOR): dusk, warm #ff9a5c sun low from camera-left (az 150, elev 8), violet sky fill #4b4a8c
+sklib.sky_world(sun_elev_deg=8, sun_az_deg=168, strength=1.0, sun_angle_deg=12)   # near-parallel to the door: orange rims on ribs/bars only
 W = S.world
 nt = W.node_tree
 bg = [n for n in nt.nodes if n.type == 'BACKGROUND'][0]
+for n in [n for n in nt.nodes if n.type == 'TEX_SKY']:
+    nt.nodes.remove(n)
+# lead r5: pure violet turned the white doors plum -> violet mixed into a neutral dusk sky so white stays lavender-white
+_v, _n = look.hex_rgb('#4b4a8c'), look.hex_rgb(ART_SKY_NEUTRAL)
+bg.inputs['Color'].default_value = (*[ART_SKY_VIOLET * a + (1 - ART_SKY_VIOLET) * b for a, b in zip(_v, _n)], 1)
+bg.inputs['Strength'].default_value = ART_SKY
 outw = [n for n in nt.nodes if n.type == 'OUTPUT_WORLD'][0]
-bg2 = sklib._n(nt, 'ShaderNodeBackground', 0, -250)
-bg2.inputs['Color'].default_value = (0.86, 0.9, 0.93, 1)
-bg2.inputs['Strength'].default_value = 0.35
+bg2 = sklib._n(nt, 'ShaderNodeBackground', 0, -250)          # interior world: per-chapter tint (row 03/04/05 world)
+bg2.inputs['Strength'].default_value = ART_WORLD_IN
+for f, h in ((1, '#0f1630'), (176, '#0f1630'), (215, '#1a2433'), (383, '#1a2433'), (430, '#0d1a26')):
+    bg2.inputs['Color'].default_value = (*look.hex_rgb(h), 1)
+    bg2.inputs['Color'].keyframe_insert('default_value', frame=f)
 mx = sklib._n(nt, 'ShaderNodeMixShader', 250, -100)
 sklib._l(nt, bg.outputs[0], mx.inputs[1])
 sklib._l(nt, bg2.outputs[0], mx.inputs[2])
@@ -1515,9 +1542,28 @@ for f, v in ((1, 0.0), (34, 0.0), (64, 1.0)):
     fac.default_value = v
     fac.keyframe_insert('default_value', frame=f)
 SUN = bpy.data.objects['SK_Sun']
+look.light(SUN, '#ff9a5c', ART_SUN)
 for f, v in ((1, SUN.data.energy), (80, SUN.data.energy), (110, 0.0)):
     SUN.data.energy = v
     SUN.data.keyframe_insert('energy', frame=f)
+
+# art: fill + rim per chapter (COLOR_SCRIPT rows 03-05). Fills: no shadows (cheap); rims: shadows off too (backlight).
+A = lambda *a, **k: area(*a, **k)    # noqa: E731
+# cold store: violet bounce fill from the dock side toward the aisle, cyan rims from the far wall onto rack edges
+A('ART_cold_fill', (-1.0, 4.0, 3.0), (3.0, 14.0), 1400 * ART_FILL, rot=(0, 90 * D2R, 0), shadow=False, hexc='#6b5fb5')
+for i, y in enumerate((-0.2, 5.5, 10.9)):
+    A('ART_cold_rim_%d' % i, (-29.2, y, 6.5), (1.2, 4.0), 900 * ART_RIM, rot=(0, -75 * D2R, 0), shadow=False, hexc='#9fe3ff', spread=70)
+A('ART_cold_rim_floor', (-29.2, 0.0, 0.8), (0.6, 3.0), 500 * ART_RIM, rot=(0, -90 * D2R, 0), shadow=False, hexc='#9fe3ff', spread=60)
+# packing hall: cool fill #8fb4e8 from the door side, warm doorway rim #ffcf8a low from the far right corner
+A('ART_pack_fill', (-31.0, 1.5, 2.6), (2.0, 8.0), 700 * ART_FILL, rot=(0, 90 * D2R, 0), shadow=False, hexc='#8fb4e8')
+A('ART_pack_rim', (-48.5, 7.6, 1.9), (2.2, 2.4), 1300 * ART_RIM, rot=(-80 * D2R, 0, 25 * D2R), shadow=False, hexc='#ffcf8a', spread=90)
+# IQF: fill #4f6fa8, cyan backlight through the glaze spray (behind the bar, toward the camera), cyan rim at the belt
+A('ART_iqf_fill', (-44.0, 2.3, 2.5), (1.5, 4.0), 300 * ART_FILL, rot=(0, 90 * D2R, 0), shadow=False, hexc='#4f6fa8')
+A('ART_spray_back', (-48.7, Y_OUT, 1.9), (0.4, 1.6), 260 * ART_RIM, rot=(0, -55 * D2R, 0), shadow=False, hexc='#a8f0ff', spread=60)
+A('ART_belt_rim', (X_BB - 1.2, Y_IN, BELT_Z + 0.35), (0.3, 1.4), 400 * ART_RIM, rot=(0, -80 * D2R, 0), shadow=False, hexc='#a8f0ff', spread=50)
+# marigold safety tape lines on the packing-hall floor (accent)
+for y in (-0.9, 3.0):
+    box('pack_tape_%.1f' % y, (-42.0, y, 0.0015), (20.0, 0.07, 0.003), LINE_YEL, 0.0, col=C_PACK)
 
 # ============================================================================================================ CAMERA
 CAM = sklib.camera('CAM', 50.0, (X_LEAF + 1.2, 0, 1.45), (X_LEAF - 5, 0, 1.45))
@@ -1529,7 +1575,8 @@ KEYS = [  # frame, location, look-at (or Euler), lens
     (70, (-3.6, 0.05, 1.85), (-12.0, 0.6, 1.9), 28),
     (110, (-8.4, -0.1, 2.1), (X_TRUCK, 0.9, 2.3), 28),
     (150, (-12.6, -0.5, 2.7), (X_TRUCK, 1.0, 1.4), 28),
-    (192, (-21.5, -1.0, 8.4), (-30.0, 1.0, 0.8), 24),
+    (192, (-22.0, -0.1, 4.8), (-30.0, 0.6, 1.0), 24),
+    (211, (-27.0, 0.0, 2.2), (-36.0, 0.6, 1.2), 26),
     (230, (-30.5, 0.0, 1.75), (-37.0, 0.8, 1.3), 28),
     (262, (-34.4, -1.0, 1.8), (-38.5, 1.3, 1.0), 28),
     (300, (-39.0, -0.5, 1.8), (-42.0, 1.2, 0.95), 30),
@@ -1537,7 +1584,8 @@ KEYS = [  # frame, location, look-at (or Euler), lens
     (383, (-43.25, 0.15, 1.5), (-43.95, 1.12, 0.82), 35),
     (440, (-45.4, 0.2, 1.55), (-48.0, Y_OUT, 0.97), 32),
     (500, (-47.3, 0.3, 1.5), (-49.5, 1.1, 1.05), 32),
-    (540, (-48.55, 0.9, 1.62), (-49.6, 1.3, 1.05), 35),
+    (520, (-47.0, 2.1, 2.0), (-49.6, 2.6, 1.0), 33),          # full-r1: arc over (not through) the spray bar at x -47.8
+    (540, (-48.4, Y_IN, 1.75), (-50.0, Y_IN, 1.0), 35),       # over the infeed, into the mouth -> calm turn to top-down
     (574, (X_BB, Y_IN, BELT_Z + 1.0), Euler((0, 0, math.pi / 2)), 35),
 ]
 prev = None
@@ -1554,11 +1602,21 @@ for f, loc, aim, lens in KEYS:
 sklib.ease_keys(CAM, CAM.data)
 FOCUS = sklib.new_obj('CAM_focus', None, coll('LIGHTS'))
 for f, p in ((1, (X_LEAF, 0, 1.45)), (40, (-3.0, 0, 1.6)), (110, (X_TRUCK, 0.8, 2.0)), (150, (X_TRUCK, 0.9, 1.4)),
-             (192, (-27.5, 0.5, 1.5)), (230, (-35.0, 1.0, 1.2)), (300, (-40.3, 1.12, 0.98)), (383, (-43.95, 1.12, 0.85)),
-             (440, (-47.2, Y_OUT, 0.97)), (500, (-48.6, 1.1, 1.0)), (540, (-49.5, 1.2, 1.05)), (574, (X_BB, Y_IN, BELT_Z))):
+             (192, (-27.5, 0.5, 1.5)), (211, (-33.0, 0.6, 1.3)), (230, (-35.0, 1.0, 1.2)), (300, (-40.3, 1.12, 0.98)), (383, (-43.95, 1.12, 0.85)),
+             (440, (-47.2, Y_OUT, 0.97)), (500, (-48.6, 1.1, 1.0)), (520, (-49.5, 2.4, 1.0)), (540, (-49.9, Y_IN, 1.0)), (574, (X_BB, Y_IN, BELT_Z))):
     FOCUS.location = p
     FOCUS.keyframe_insert('location', frame=f)
 sklib.ease_keys(FOCUS)
+# full-r1: in the last approach the view axis sweeps along the belt -> key focus to where the axis meets the belt
+# (otherwise f545-570 were defocused smears at f/6.3, 1 m)
+for f in range(522, 574, 3):
+    S.frame_set(f)
+    mw = CAM.matrix_world
+    o, d = mw.translation, mw.to_quaternion() @ Vector((0, 0, -1))
+    t = (BELT_Z - o.z) / d.z if d.z < -0.05 else 1.2
+    FOCUS.location = o + d * t
+    FOCUS.keyframe_insert('location', frame=f)
+S.frame_set(1)
 sklib.dof(CAM, FOCUS, 6.3)
 
 # ---- render cost: hide whole areas while they cannot be seen (walls/doors closed or behind camera)
@@ -1579,7 +1637,7 @@ def coll_objs(*cs):
 
 hide_window(coll_objs(C_RACKS, C_EVAP, C_CUR, coll('A-FORKLIFT')) + [OPER] + list(OPER.children_recursive), 245)
 hide_window(coll_objs(C_LINE, C_IQF) + [o for o in C_PPL.all_objects if o not in set([OPER] + list(OPER.children_recursive))],
-            None, 175)
+            None, 2)        # full-r1: was 175 -> the hall popped in behind the door glass at f175
 SUN.hide_render = False
 SUN.keyframe_insert('hide_render', frame=1)
 SUN.hide_render = True
@@ -1592,6 +1650,45 @@ e.volumetric_tile_size = '16'
 e.volumetric_samples = 32
 e.volumetric_end = 25.0
 print('BUILD %.1fs' % (time.time() - T0))
+sklib.LOOKS['cold'] = sklib.LOOKS['int'] = 'AgX - Medium High Contrast'   # full-r1: contrast (own override)
 sklib.finish('plant-cold', 'cold')
+# art: one grade for the whole blend (internal joins f192/f383 identical by construction), then per-chapter fog density
+look.apply(S, 'plant-cold')
+# art r3: the preset's lift/gain amounts read as a full-frame blue tint (G-SCENE-8) -> same hues, ~1/3 strength
+look.grade(S, lift='#1e2a4f', gain='#cfe0ff', sat=1.15, lift_amt=0.008, gain_amt=0.012, vignette=0.1)   # <= 0.025 / 0.035 (COLOR_SCRIPT §3)
+# lead note: look.apply no longer adds world fog. Closed interiors only: density 0 at the exterior door frames (f1-39),
+# small values inside (luma checked), so the dusk sky/sun at BRIDGE_DOOR is never absorbed.
+FOG = look.fog(S, '#b9c8ff', 0.0) or S.world.node_tree.nodes['SK_FOG']
+for f, (h, d) in ((1, ('#b9c8ff', 0.0)), (40, ('#b9c8ff', 0.0025)), (176, ('#b9c8ff', 0.0025)), (215, ('#dfe9f5', 0.0015)),
+                  (383, ('#dfe9f5', 0.0015)), (430, ('#cfefff', 0.004)), (520, ('#cfefff', 0.004)), (560, ('#cfefff', 0.0015))):
+    FOG.inputs['Color'].default_value = (*look.hex_rgb(h), 1)
+    FOG.inputs['Density'].default_value = d
+    FOG.inputs['Color'].keyframe_insert('default_value', frame=f)
+    FOG.inputs['Density'].keyframe_insert('default_value', frame=f)
+# full-r1: the frame-filling metal belt top-down sits under four hall lights and clipped (mean 243): ease the exposure
+# down over the last approach like an eye/camera adapting (f530 0 -> f574 EXP_BB); keyed after finish() (which zeroes it)
+EXP_BB = -2.3
+ART_EXP = 0.0       # lead: frames must not get darker than before (was -0.3 in r3)
+vs = S.view_settings
+for f, v in ((1, ART_EXP), (520, ART_EXP), (574, EXP_BB)):
+    vs.exposure = v
+    vs.keyframe_insert('exposure', frame=f)
+vs.exposure = 0.0
+# full-r1: EEVEE motion blur on the GN-scrolled shrimp instances renders 'barcode' smears in the close belt approach;
+# keep blur through the glazing spray (droplets), shutter -> 0 (no blur) for the last close approach f506-574
+for f, v in ((1, 0.5), (488, 0.5), (528, 0.0)):     # linear ramp (a hard switch popped at f506)
+    S.render.motion_blur_shutter = v
+    S.keyframe_insert('render.motion_blur_shutter', frame=f)
+for fc in sklib._fcurves(S):
+    if 'motion_blur_shutter' in fc.data_path:
+        for k in fc.keyframe_points:
+            k.interpolation = 'LINEAR'
+S.render.motion_blur_shutter = 0.5
+S.eevee.taa_render_samples = 32        # full-r1: budget (574 frames); motion blur + 32 spp checked clean
+S.eevee.volumetric_samples = 16
+S.eevee.volumetric_tile_size = '8'
+S.eevee.volumetric_end = 40.0      # look.fog sets 2000 m; the rooms are <= 30 m deep
+S.eevee.shadow_resolution_scale = 0.25   # full-r1: shadow maps over 442 pallets were half the frame time; no visible loss
+bpy.ops.wm.save_mainfile(compress=True)
 S.frame_set(1)
 
