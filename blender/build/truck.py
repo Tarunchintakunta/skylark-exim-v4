@@ -16,6 +16,7 @@ from mathutils import Matrix, Vector
 REPO = '/Users/tarunchintakunta/Desktop/2.0/skylark-exim-v4'
 sys.path.insert(0, REPO + '/assets-src/blender/lib')
 import sklib  # noqa: E402
+import look  # noqa: E402  (art pass, issue #75: COLOR_SCRIPT row 10 v-truck)
 
 sklib.reset()
 import people  # noqa: E402  (enables MPFB after the factory reset)
@@ -108,7 +109,10 @@ def grimed(base, name, z0=0.3, z1=1.9, color=(0.23, 0.18, 0.12), amount=0.85, st
     return m
 
 
-def haze(m, color=(0.55, 0.63, 0.72), dist=4500.0, maxf=0.45):
+HAZE_COL = tuple(0.85 * c for c in look.hex_rgb('#e8d2b0'))   # morning haze (was cool grey-blue 0.55/0.63/0.72)
+
+
+def haze(m, color=HAZE_COL, dist=4500.0, maxf=0.45):
     """Aerial perspective: blend the base colour toward a haze colour with camera distance (cheap, no volumes)."""
     nt = m.node_tree
     b = next(n for n in nt.nodes if n.type == 'BSDF_PRINCIPLED')
@@ -137,8 +141,8 @@ def uv_strip_obj(name, verts, faces, uvs, coll, mat):
 
 # ======================================================================================================== materials
 M = {}
-M['white_box'] = grimed(sklib.painted_metal((0.84, 0.84, 0.82), wear=0.22, streaks=0.0, contrast=0.35), 'truck_box_white',
-                        0.9, 2.3, amount=0.75)
+M['white_box'] = grimed(sklib.painted_metal((0.80, 0.80, 0.77), wear=0.3, streaks=0.4, contrast=0.4), 'truck_box_white',
+                        0.9, 2.6, amount=0.85, streaks=0.8)
 M['cab'] = grimed(sklib.painted_metal((0.80, 0.80, 0.78), wear=0.2, streaks=0.0, contrast=0.35), 'truck_cab_white',
                   0.6, 1.8, amount=0.8)
 M['cab_dark'] = grimed(sklib.painted_metal((0.06, 0.065, 0.07), wear=0.3, contrast=0.5), 'truck_cab_dark', 0.4, 1.3)
@@ -158,7 +162,7 @@ M['rim'] = sklib.painted_metal((0.55, 0.55, 0.53), wear=0.5, streaks=0.4)
 M['ice'] = sklib._ice_chunk_mat()
 M['concrete'] = sklib.concrete_quay(0.45)
 M['concrete_fl'] = sklib.concrete_floor(0.3)
-M['puf'] = grimed(sklib.painted_metal((0.80, 0.82, 0.82), wear=0.12, contrast=0.3), 'puf_panel', 0.0, 1.8,
+M['puf'] = grimed(sklib.painted_metal((0.64, 0.72, 0.82), wear=0.12, contrast=0.3), 'puf_panel', 0.0, 1.8,
                   color=(0.42, 0.38, 0.33), amount=0.5)
 M['puf_blue'] = sklib.painted_metal((0.08, 0.22, 0.45), wear=0.15, contrast=0.4)
 M['shutter'] = sklib.corrugated_steel((0.62, 0.64, 0.66), 0.35)
@@ -288,8 +292,21 @@ def leaf_mat(name, c1, c2, cut=True):
     _l(nt, col, vmu.inputs[0])
     _l(nt, und, vmu.inputs['Scale'])
     _l(nt, vmu.outputs[0], b.inputs['Base Color'])
-    b.inputs['Roughness'].default_value = 0.6
+    b.inputs['Roughness'].default_value = 0.6 if cut else 0.85
     b.inputs['Subsurface Weight'].default_value = 0.0
+    if not cut:
+        b.inputs['Specular IOR Level'].default_value = 0.3   # solid crowns: break the surface into leaf clumps (dark gaps between clumps, bumped clumps)
+        vc = _n(nt, 'ShaderNodeTexVoronoi', -650, 900, feature='F1')
+        vc.inputs['Scale'].default_value = 1.6
+        _l(nt, geo.outputs['Position'], vc.inputs['Vector'])
+        ve = _n(nt, 'ShaderNodeTexVoronoi', -650, 1100, feature='DISTANCE_TO_EDGE')
+        ve.inputs['Scale'].default_value = 1.6
+        _l(nt, geo.outputs['Position'], ve.inputs['Vector'])
+        gap = _maprange(nt, ve.outputs['Distance'], 0.0, 0.12, 0.25, 1.0, -400, 1100)
+        vm2 = _n(nt, 'ShaderNodeVectorMath', 450, 650, operation='SCALE')
+        _l(nt, vmu.outputs[0], vm2.inputs[0])
+        _l(nt, gap, vm2.inputs['Scale'])
+        _l(nt, vm2.outputs[0], b.inputs['Base Color'])
     if cut:   # leaf clusters on cards: voronoi blobs
         vo = _n(nt, 'ShaderNodeTexVoronoi', -650, -100, feature='F1')
         vo.inputs['Scale'].default_value = 7.0
@@ -306,7 +323,12 @@ def leaf_mat(name, c1, c2, cut=True):
     bp = _n(nt, 'ShaderNodeBump', 300, -300)
     bp.inputs['Strength'].default_value = 0.5
     nz2 = _noise(nt, geo.outputs['Position'], 18.0, 4.0, 0.6, 0, -400)
-    _l(nt, nz2.outputs['Fac'], bp.inputs['Height'])
+    if cut:
+        _l(nt, nz2.outputs['Fac'], bp.inputs['Height'])
+    else:
+        bp.inputs['Strength'].default_value = 0.9
+        _l(nt, _math(nt, 'MULTIPLY_ADD', nz2.outputs['Fac'], 0.3, x=100, y=-500,
+                     c=_maprange(nt, vc.outputs['Distance'], 0.0, 0.8, 1.0, 0.0, -100, -600)), bp.inputs['Height'])
     _l(nt, bp.outputs[0], b.inputs['Normal'])
     _l(nt, b.outputs[0], out.inputs['Surface'])
     return m
@@ -353,83 +375,140 @@ M['frond'] = frond_mat()
 
 
 def land_mat():
-    """Patchwork farmland seen from 10-300 m: voronoi fields (paddy greens, scrub, a few ploughed plots), darker field
-    bunds, grass scan detail up close, aerial haze."""
+    """Farmland seen from 10-300 m: irregular (domain-warped) fields - paddy greens, fallow, red laterite, olive scrub -
+    with bund lines, broad dry/green zones, shader tree-canopy groves (bumped crowns), grass scan detail up close, haze."""
     m = bpy.data.materials.get('land')
     if m:
         return m
     t = sklib.tex('sparse_grass')
     m, nt = sklib._new_mat('land')
-    out = _n(nt, 'ShaderNodeOutputMaterial', 1400, 0)
-    b = _n(nt, 'ShaderNodeBsdfPrincipled', 1100, 0)
-    geo = _n(nt, 'ShaderNodeNewGeometry', -1500, 0)
+    out = _n(nt, 'ShaderNodeOutputMaterial', 1600, 0)
+    b = _n(nt, 'ShaderNodeBsdfPrincipled', 1300, 0)
+    geo = _n(nt, 'ShaderNodeNewGeometry', -2000, 0)
     pos = geo.outputs['Position']
-    vo = _n(nt, 'ShaderNodeTexVoronoi', -1200, 300, feature='F1', distance='CHEBYCHEV')
-    vo.inputs['Scale'].default_value = 1 / 32.0
-    vo.inputs['Randomness'].default_value = 0.8
-    _l(nt, pos, vo.inputs['Vector'])
-    ramp = _n(nt, 'ShaderNodeValToRGB', -950, 300)
+    # domain warp so field edges wander like real parcels
+    wn = _n(nt, 'ShaderNodeTexNoise', -1800, 300)
+    wn.inputs['Scale'].default_value = 1 / 160.0
+    wn.inputs['Detail'].default_value = 2.0
+    _l(nt, pos, wn.inputs['Vector'])
+    wv = _n(nt, 'ShaderNodeVectorMath', -1600, 300, operation='MULTIPLY_ADD')
+    _l(nt, wn.outputs['Color'], wv.inputs[0])
+    wv.inputs[1].default_value = (55.0, 55.0, 0.0)
+    _l(nt, pos, wv.inputs[2])
+    wpos = wv.outputs[0]
+    # land-holding zones (warped voronoi ~150 m), each with its own plot orientation and plot size
+    zv = _n(nt, 'ShaderNodeTexVoronoi', -1400, 500, feature='F1')
+    zv.inputs['Scale'].default_value = 1 / 150.0
+    _l(nt, wpos, zv.inputs['Vector'])
+    zs = _n(nt, 'ShaderNodeSeparateColor', -1250, 500)
+    _l(nt, zv.outputs['Color'], zs.inputs[0])
+    rot = _n(nt, 'ShaderNodeVectorRotate', -1100, 350, rotation_type='Z_AXIS')
+    _l(nt, pos, rot.inputs['Vector'])
+    _l(nt, _math(nt, 'MULTIPLY', zs.outputs[0], 3.1416, x=-1250, y=350), rot.inputs['Angle'])
+    # plots: brick pattern = rows of rectangular fields (~25-45 m x 12-20 m) with earth bunds as mortar
+    br = _n(nt, 'ShaderNodeTexBrick', -900, 350)
+    br.offset, br.squash = 0.37, 1.0
+    br.inputs['Color1'].default_value = (0, 0, 0, 1)
+    br.inputs['Color2'].default_value = (1, 1, 1, 1)
+    br.inputs['Mortar'].default_value = (0, 0, 0, 1)
+    _l(nt, _maprange(nt, zs.outputs[1], 0.0, 1.0, 1 / 30.0, 1 / 55.0, -1100, 150), br.inputs['Scale'])
+    br.inputs['Mortar Size'].default_value = 0.012
+    br.inputs['Mortar Smooth'].default_value = 0.3
+    br.inputs['Bias'].default_value = 0.0
+    br.inputs['Brick Width'].default_value = 0.9
+    br.inputs['Row Height'].default_value = 0.35
+    _l(nt, rot.outputs[0], br.inputs['Vector'])
+    pr = _n(nt, 'ShaderNodeSeparateColor', -700, 450)
+    _l(nt, br.outputs['Color'], pr.inputs[0])
+    ramp = _n(nt, 'ShaderNodeValToRGB', -500, 450)
     cr = ramp.color_ramp
+    pal = [(0.0, (0.045, 0.11, 0.018)), (0.14, (0.10, 0.17, 0.03)), (0.26, (0.065, 0.13, 0.025)), (0.38, (0.17, 0.12, 0.06)),
+           (0.48, (0.11, 0.15, 0.035)), (0.58, (0.19, 0.09, 0.045)), (0.68, (0.075, 0.095, 0.03)), (0.78, (0.14, 0.16, 0.05)),
+           (0.88, (0.21, 0.16, 0.08)), (0.96, (0.05, 0.10, 0.02))]
     cr.interpolation = 'CONSTANT'
-    pal = [(0.0, (0.07, 0.17, 0.025)), (0.16, (0.13, 0.22, 0.035)), (0.32, (0.05, 0.12, 0.025)), (0.48, (0.15, 0.21, 0.05)),
-           (0.62, (0.10, 0.19, 0.03)), (0.74, (0.21, 0.16, 0.08)), (0.84, (0.09, 0.15, 0.04)), (0.93, (0.17, 0.14, 0.08))]
     cr.elements[0].position, cr.elements[0].color = pal[0][0], pal[0][1] + (1,)
     cr.elements[1].position, cr.elements[1].color = pal[1][0], pal[1][1] + (1,)
-    for p, c in pal[2:]:
-        e = cr.elements.new(p)
-        e.color = c + (1,)
-    sepc = _n(nt, 'ShaderNodeSeparateColor', -1100, 450)
-    _l(nt, vo.outputs['Color'], sepc.inputs[0])
-    _l(nt, sepc.outputs[0], ramp.inputs['Fac'])
+    for p_, c_ in pal[2:]:
+        cr.elements.new(p_).color = c_ + (1,)
+    _l(nt, _math(nt, 'FRACT', _math(nt, 'MULTIPLY_ADD', zs.outputs[2], 0.37, x=-650, y=600, c=pr.outputs[0]), x=-600, y=550), ramp.inputs['Fac'])
     col = ramp.outputs['Color']
-    # field edge bunds (distance to cell edge)
-    ve = _n(nt, 'ShaderNodeTexVoronoi', -1200, 0, feature='F1', distance='CHEBYCHEV')
-    ve.inputs['Scale'].default_value = 1 / 32.0
-    ve.inputs['Randomness'].default_value = 0.8
-    _l(nt, pos, ve.inputs['Vector'])
-    v2 = _n(nt, 'ShaderNodeTexVoronoi', -1200, -150, feature='F2', distance='CHEBYCHEV')
-    v2.inputs['Scale'].default_value = 1 / 32.0
-    v2.inputs['Randomness'].default_value = 0.8
-    _l(nt, pos, v2.inputs['Vector'])
-    edge = _maprange(nt, _math(nt, 'SUBTRACT', v2.outputs['Distance'], ve.outputs['Distance'], x=-1050, y=-50), 0.05, 0.015, 0.0, 0.8, -950, 0)
-    col = _mix(nt, edge, col, (0.18, 0.15, 0.08), 'MIX', -700, 200)
-    # in-field variation
-    nz = _noise(nt, pos, 0.12, 8.0, 0.7, -1200, -300)
-    v = _maprange(nt, nz.outputs['Fac'], 0.3, 0.7, 0.6, 1.35, -950, -300)
-    vm = _n(nt, 'ShaderNodeVectorMath', -500, 100, operation='SCALE')
+    # some zones are scrub / fallow without plots (dry olive-brown, mottled)
+    sn = _noise(nt, pos, 1 / 18.0, 6.0, 0.7, -900, 700)
+    scrub = _mix(nt, _maprange(nt, sn.outputs['Fac'], 0.35, 0.65, 0, 1, -700, 700), (0.10, 0.10, 0.04), (0.20, 0.15, 0.08), 'MIX', -500, 700)
+    zone = _maprange(nt, zs.outputs[1], 0.72, 0.78, 0.0, 1.0, -700, 850)
+    col = _mix(nt, zone, col, scrub, 'MIX', -300, 500)
+    # broad moisture zones
+    zn = _noise(nt, pos, 1 / 700.0, 3.0, 0.5, -1400, 650)
+    col = _mix(nt, _maprange(nt, zn.outputs['Fac'], 0.42, 0.62, 0.0, 0.4, -1200, 650), col, (0.16, 0.14, 0.07), 'MIX', -200, 450)
+    # bunds (brick mortar) between plots, only where there are plots
+    edge = _math(nt, 'MULTIPLY', br.outputs['Fac'], _math(nt, 'SUBTRACT', 1.0, zone, x=-700, y=100), x=-550, y=150)
+    edge = _math(nt, 'MULTIPLY', edge, 0.8, x=-400, y=150)
+    col = _mix(nt, edge, col, (0.20, 0.17, 0.10), 'MIX', -100, 300)
+    # in-field streaks (crop rows / mottling)
+    nz = _noise(nt, pos, 0.09, 8.0, 0.7, -1400, -250)
+    v = _maprange(nt, nz.outputs['Fac'], 0.3, 0.7, 0.62, 1.38, -1200, -250)
+    nzb = _noise(nt, pos, 0.025, 4.0, 0.6, -1400, -400)          # 20-40 m patches inside plots (uneven growth, wet/dry)
+    v = _math(nt, 'MULTIPLY', v, _maprange(nt, nzb.outputs['Fac'], 0.35, 0.65, 0.8, 1.2, -1200, -400), x=-1000, y=-300)
+    # furrows (2.5 m) along the plot direction in some plots
+    sepr = _n(nt, 'ShaderNodeSeparateXYZ', -900, -500)
+    _l(nt, rot.outputs[0], sepr.inputs[0])
+    fur = _math(nt, 'SINE', _math(nt, 'MULTIPLY', sepr.outputs['Y'], 2 * math.pi / 2.5, x=-750, y=-500), x=-650, y=-500)
+    plough = _math(nt, 'GREATER_THAN', _math(nt, 'FRACT', _math(nt, 'MULTIPLY', pr.outputs[0], 7.0, x=-750, y=-650), x=-650, y=-650), 0.6, x=-550, y=-650)
+    v = _math(nt, 'MULTIPLY', v, _math(nt, 'MULTIPLY_ADD', _math(nt, 'MULTIPLY', fur, plough, x=-500, y=-550), 0.12, x=-400, y=-550, c=1.0),
+              x=-300, y=-400)
+    vm = _n(nt, 'ShaderNodeVectorMath', -500, 150, operation='SCALE')
     _l(nt, col, vm.inputs[0])
     _l(nt, v, vm.inputs['Scale'])
     col = vm.outputs[0]
-    # grass scan detail (multiplied, normalised)
-    uvm = _n(nt, 'ShaderNodeMapping', -1200, -600)
+    # tree-canopy groves: patch mask x small crown cells (dark, bumped, AO between crowns)
+    gm = _noise(nt, pos, 1 / 230.0, 4.0, 0.55, -1400, -500)
+    grove = _maprange(nt, gm.outputs['Fac'], 0.56, 0.60, 0.0, 1.0, -1200, -500)
+    gm2 = _noise(nt, pos, 1 / 60.0, 3.0, 0.5, -1400, -700)
+    grove = _math(nt, 'MAXIMUM', grove, _maprange(nt, gm2.outputs['Fac'], 0.70, 0.73, 0.0, 1.0, -1200, -700), x=-1050, y=-600)
+    cv = _n(nt, 'ShaderNodeTexVoronoi', -1400, -900, feature='F1')
+    cv.inputs['Scale'].default_value = 1 / 4.2
+    _l(nt, pos, cv.inputs['Vector'])
+    crown = _maprange(nt, cv.outputs['Distance'], 0.95, 0.15, 0.0, 1.0, -1200, -900)
+    ccol = _mix(nt, crown, (0.008, 0.02, 0.006), (0.05, 0.10, 0.025), 'MIX', -900, -900)
+    cvc = _n(nt, 'ShaderNodeSeparateColor', -1200, -1050)
+    _l(nt, cv.outputs['Color'], cvc.inputs[0])
+    ccol = _mix(nt, _math(nt, 'MULTIPLY', cvc.outputs[0], 0.5, x=-1000, y=-1050), ccol, (0.09, 0.12, 0.03), 'MIX', -750, -950)
+    col = _mix(nt, grove, col, ccol, 'MIX', -350, 100)
+    # grass scan detail (multiplied, normalised) close to the camera
+    uvm = _n(nt, 'ShaderNodeMapping', -1400, -1300)
     uvm.inputs['Scale'].default_value = (1 / t['size_m'],) * 3
     _l(nt, pos, uvm.inputs['Vector'])
-    di = sklib._img(nt, t['diff'], True, uvm.outputs[0], -950, -600)
+    di = sklib._img(nt, t['diff'], True, uvm.outputs[0], -1150, -1300)
     g = 1.0 / sklib._avg_lum(di.image)
-    bw = _n(nt, 'ShaderNodeRGBToBW', -700, -600)
+    bw = _n(nt, 'ShaderNodeRGBToBW', -900, -1300)
     _l(nt, di.outputs['Color'], bw.inputs[0])
-    cd = _n(nt, 'ShaderNodeCameraData', -950, -850)
-    near = _maprange(nt, cd.outputs['View Distance'], 40.0, 150.0, 1.0, 0.0, -700, -850)
-    det = _math(nt, 'MULTIPLY_ADD', _math(nt, 'SUBTRACT', _math(nt, 'MULTIPLY', bw.outputs[0], g, x=-550, y=-600), 1.0, x=-450, y=-600),
-                near, x=-350, y=-700, c=1.0)
-    vm2 = _n(nt, 'ShaderNodeVectorMath', -250, 50, operation='SCALE')
+    cd = _n(nt, 'ShaderNodeCameraData', -1150, -1500)
+    near = _maprange(nt, cd.outputs['View Distance'], 40.0, 150.0, 1.0, 0.0, -900, -1500)
+    det = _math(nt, 'MULTIPLY_ADD', _math(nt, 'SUBTRACT', _math(nt, 'MULTIPLY', bw.outputs[0], g, x=-750, y=-1300), 1.0, x=-650, y=-1300),
+                near, x=-550, y=-1400, c=1.0)
+    vm2 = _n(nt, 'ShaderNodeVectorMath', -150, 50, operation='SCALE')
     _l(nt, col, vm2.inputs[0])
     _l(nt, det, vm2.inputs['Scale'])
     _l(nt, vm2.outputs[0], b.inputs['Base Color'])
-    ni = sklib._img(nt, t['nor'], False, uvm.outputs[0], -950, -1000)
-    nm = _n(nt, 'ShaderNodeNormalMap', -650, -1000)
+    # normals: grass scan up close + crown bumps in the groves
+    ni = sklib._img(nt, t['nor'], False, uvm.outputs[0], -1150, -1700)
+    nm = _n(nt, 'ShaderNodeNormalMap', -850, -1700)
     _l(nt, ni.outputs['Color'], nm.inputs['Color'])
-    _l(nt, nm.outputs[0], b.inputs['Normal'])
-    b.inputs['Roughness'].default_value = 0.9
+    bp = _n(nt, 'ShaderNodeBump', 600, -600)
+    bp.inputs['Distance'].default_value = 0.5
+    _l(nt, _math(nt, 'MULTIPLY', crown, grove, x=300, y=-600), bp.inputs['Height'])
+    _l(nt, nm.outputs[0], bp.inputs['Normal'])
+    _l(nt, bp.outputs[0], b.inputs['Normal'])
+    _l(nt, _maprange(nt, grove, 0.0, 1.0, 0.92, 0.75, 600, -300), b.inputs['Roughness'])
     _l(nt, b.outputs[0], out.inputs['Surface'])
-    haze(m)
+    haze(m, dist=3800.0, maxf=0.5)
     return m
 
 
 M['land'] = land_mat()
 
 
-def water_mat(name, deep, shallow, rough=0.06):
+def water_mat(name, deep, shallow, rough=0.28, spec=0.2):
     m = bpy.data.materials.get(name)
     if m:
         return m
@@ -437,11 +516,11 @@ def water_mat(name, deep, shallow, rough=0.06):
     out = _n(nt, 'ShaderNodeOutputMaterial', 900, 0)
     b = _n(nt, 'ShaderNodeBsdfPrincipled', 600, 0)
     geo = _n(nt, 'ShaderNodeNewGeometry', -900, 0)
-    nz = _noise(nt, geo.outputs['Position'], 0.02, 4.0, 0.6, -650, 200)
+    nz = _noise(nt, geo.outputs['Position'], 0.03, 4.0, 0.6, -650, 200)
     _l(nt, _mix(nt, _maprange(nt, nz.outputs['Fac'], 0.35, 0.65, 0, 1, -400, 200), deep, shallow, 'MIX', -150, 200),
        b.inputs['Base Color'])
     b.inputs['Roughness'].default_value = rough
-    b.inputs['Specular IOR Level'].default_value = 0.5
+    b.inputs['Specular IOR Level'].default_value = spec
     w = _n(nt, 'ShaderNodeTexWave', -650, -200, wave_type='BANDS')
     w.inputs['Scale'].default_value = 0.08
     w.inputs['Distortion'].default_value = 6.0
@@ -453,16 +532,93 @@ def water_mat(name, deep, shallow, rough=0.06):
     _l(nt, _math(nt, 'ADD', w.outputs['Fac'], nz2.outputs['Fac'], x=-300, y=-300), bp.inputs['Height'])
     _l(nt, bp.outputs[0], b.inputs['Normal'])
     _l(nt, b.outputs[0], out.inputs['Surface'])
-    haze(m, maxf=0.55)
+    haze(m, maxf=0.5)
     return m
 
 
-M['pond'] = water_mat('pond_water', (0.015, 0.04, 0.035), (0.04, 0.09, 0.06), 0.05)
-M['pond2'] = water_mat('pond_water_b', (0.03, 0.06, 0.035), (0.07, 0.11, 0.05), 0.07)
-M['sea'] = water_mat('sea_water', (0.006, 0.04, 0.075), (0.012, 0.075, 0.11), 0.1)
-M['sand'] = haze(sklib.sand().copy())
-M['sand'].name = 'sand_hazed'
-M['bund'] = haze(sklib.pbr('bund_mud', 'brown_mud_03', tint=(0.36, 0.30, 0.20), contrast=0.6, wear=0.0, scale=3.0))
+# aquaculture pond water: green / olive / teal / turbid, never mirror-like
+PONDW = [water_mat('pond_water_a', (0.012, 0.040, 0.026), (0.035, 0.085, 0.045)),
+         water_mat('pond_water_b', (0.030, 0.045, 0.020), (0.075, 0.090, 0.040)),
+         water_mat('pond_water_c', (0.008, 0.040, 0.040), (0.025, 0.090, 0.075)),
+         water_mat('pond_water_d', (0.050, 0.060, 0.035), (0.100, 0.105, 0.060), rough=0.14)]
+
+
+def coast_d(nt, pos, x=-1200, y=0):
+    """Signed distance (m, + = seaward) from the NE-SW coastline x = COAST0 + 0.5 y, in a node tree."""
+    sep = _n(nt, 'ShaderNodeSeparateXYZ', x, y)
+    _l(nt, pos, sep.inputs[0])
+    d = _math(nt, 'MULTIPLY_ADD', sep.outputs['Y'], -0.5, x=x + 150, y=y, c=sep.outputs['X'])
+    return _math(nt, 'MULTIPLY', _math(nt, 'SUBTRACT', d, COAST0, x=x + 300, y=y), 0.894, x=x + 450, y=y)
+
+
+def sea_mat():
+    """Bay of Bengal from the air: turquoise shallows -> deep blue, long swell normals, breaking surf lines parallel to
+    the beach (foam broken up by noise), rough enough that the low sun spreads into a sheen, not a pillar."""
+    m, nt = sklib._new_mat('sea_water')
+    out = _n(nt, 'ShaderNodeOutputMaterial', 1300, 0)
+    b = _n(nt, 'ShaderNodeBsdfPrincipled', 1000, 0)
+    geo = _n(nt, 'ShaderNodeNewGeometry', -1600, 0)
+    pos = geo.outputs['Position']
+    d = coast_d(nt, pos, -1500, 300)
+    depth = _maprange(nt, d, 10.0, 260.0, 0.0, 1.0, -900, 300)
+    nzc = _noise(nt, pos, 1 / 90.0, 4.0, 0.6, -1200, 500)
+    depth = _math(nt, 'MULTIPLY_ADD', _math(nt, 'SUBTRACT', nzc.outputs['Fac'], 0.5, x=-1000, y=500), 0.35, True, -800, 450, c=depth)
+    col = _mix(nt, depth, (0.016, 0.16, 0.19), (0.006, 0.04, 0.075), 'MIX', -600, 300)
+    # surf: 3-4 bands of foam near the beach, each broken into streaks
+    s = _math(nt, 'SINE', _math(nt, 'MULTIPLY', d, 2 * math.pi / 22.0, x=-1100, y=0), x=-950, y=0)
+    band = _maprange(nt, s, 0.55, 0.95, 0.0, 1.0, -800, 0)
+    fn = _noise(nt, pos, 0.12, 6.0, 0.65, -1100, -200)
+    brk = _maprange(nt, fn.outputs['Fac'], 0.42, 0.62, 0.0, 1.0, -900, -200)
+    near = _maprange(nt, d, 95.0, 4.0, 0.0, 1.0, -900, -350)
+    shore = _maprange(nt, d, 9.0, 1.0, 0.0, 1.0, -900, -500)        # wash line on the beach edge
+    foam = _math(nt, 'MAXIMUM', _math(nt, 'MULTIPLY', _math(nt, 'MULTIPLY', band, brk, x=-650, y=-100), near, x=-500, y=-150),
+                 _math(nt, 'MULTIPLY', shore, brk, x=-650, y=-500), x=-350, y=-200)
+    col = _mix(nt, foam, col, (0.80, 0.83, 0.84), 'MIX', -200, 200)
+    _l(nt, col, b.inputs['Base Color'])
+    _l(nt, _maprange(nt, foam, 0.0, 1.0, 0.16, 0.8, 500, -100), b.inputs['Roughness'])
+    b.inputs['Specular IOR Level'].default_value = 0.42
+    # swell normals: long crests parallel to the coast + chop
+    mp = _n(nt, 'ShaderNodeMapping', -1300, -800)
+    mp.inputs['Rotation'].default_value = (0, 0, math.atan2(1.0, -0.5))
+    _l(nt, pos, mp.inputs['Vector'])
+    w = _n(nt, 'ShaderNodeTexWave', -1100, -800, wave_type='BANDS')
+    w.inputs['Scale'].default_value = 1 / 40.0
+    w.inputs['Distortion'].default_value = 4.0
+    w.inputs['Detail'].default_value = 4.0
+    _l(nt, mp.outputs[0], w.inputs['Vector'])
+    ch = _noise(nt, pos, 0.35, 6.0, 0.6, -1100, -1000)
+    bp = _n(nt, 'ShaderNodeBump', 700, -600)
+    bp.inputs['Strength'].default_value = 0.35
+    bp.inputs['Distance'].default_value = 0.6
+    _l(nt, _math(nt, 'MULTIPLY_ADD', ch.outputs['Fac'], 0.5, x=-800, y=-900, c=w.outputs['Fac']), bp.inputs['Height'])
+    _l(nt, bp.outputs[0], b.inputs['Normal'])
+    _l(nt, b.outputs[0], out.inputs['Surface'])
+    haze(m, dist=5000.0, maxf=0.32)
+    return m
+
+
+def beach_mat():
+    m, nt = sklib._new_mat('beach_sand')
+    out = _n(nt, 'ShaderNodeOutputMaterial', 900, 0)
+    b = _n(nt, 'ShaderNodeBsdfPrincipled', 600, 0)
+    geo = _n(nt, 'ShaderNodeNewGeometry', -1300, 0)
+    d = coast_d(nt, geo.outputs['Position'], -1200, 200)
+    wet = _maprange(nt, d, -14.0, -2.0, 0.0, 1.0, -600, 200)
+    nz = _noise(nt, geo.outputs['Position'], 0.08, 5.0, 0.6, -700, -100)
+    dry = _mix(nt, _maprange(nt, nz.outputs['Fac'], 0.3, 0.7, 0, 1, -450, -100), (0.42, 0.35, 0.25), (0.52, 0.45, 0.33), 'MIX', -250, 0)
+    _l(nt, _mix(nt, wet, dry, (0.20, 0.17, 0.12), 'MIX', 0, 100), b.inputs['Base Color'])
+    _l(nt, _maprange(nt, wet, 0.0, 1.0, 0.9, 0.25, 200, -200), b.inputs['Roughness'])
+    _l(nt, b.outputs[0], out.inputs['Surface'])
+    haze(m, dist=5000.0, maxf=0.35)
+    return m
+
+
+COAST0 = 900.0
+M['sea'] = sea_mat()
+M['beach'] = beach_mat()
+M['bund'] = haze(sklib.pbr('bund_mud', 'brown_mud_03', tint=(0.27, 0.20, 0.12), contrast=0.7, wear=0.0, scale=3.0))
+M['pond_mud'] = haze(sklib.pbr('pond_mud', 'mud_cracked_dry_03', tint=(0.40, 0.33, 0.24), contrast=0.6, wear=0.0, scale=4.0))
+M['track'] = haze(sklib.pbr('laterite_track', 'muddy_tracks', tint=(0.55, 0.32, 0.20), contrast=0.6, wear=0.0, scale=2.0))
 
 
 def hill_mat():
@@ -501,14 +657,37 @@ def set_sun(elev, az, f):
     d = Vector((math.sin(a) * math.cos(el), math.cos(a) * math.cos(el), math.sin(el)))
     SUN.rotation_euler = d.to_track_quat('Z', 'Y').to_euler()
     SUN.keyframe_insert('rotation_euler', frame=f)
-    SUN.data.color = sklib.sun_color(elev)
+    SUN.data.color = look.hex_rgb('#ffb870')      # art r6 (lead): warmer than row 10's #ffc98a so sunlit surfaces read morning gold
     SUN.data.keyframe_insert('color', frame=f)
 
 
 set_sun(20, 100, 1)
 set_sun(20, 100, 120)
 set_sun(15, 90, 216)
-SUN.data.energy = 4.2
+SUN.data.energy = 7.5   # art r5: brighter sun pools on the yard
+
+
+def tint_sky(horizon='#ffd7a0', zenith='#5f93c8', amount=0.7, strength=1.0):
+    """Morning world: multiply the physical sky by a horizon->zenith gradient (hues normalised, so it tints, not darkens)."""
+    nt = world.node_tree
+    bg = next(n for n in nt.nodes if n.type == 'BACKGROUND')
+    bg.inputs['Strength'].default_value *= strength
+    tc = _n(nt, 'ShaderNodeTexCoord', -700, -300)
+    sep = _n(nt, 'ShaderNodeSeparateXYZ', -500, -300)
+    _l(nt, tc.outputs['Generated'], sep.inputs[0])
+    ramp = _n(nt, 'ShaderNodeValToRGB', -300, -300)
+    _l(nt, sep.outputs['Z'], ramp.inputs[0])
+    norm = lambda h: (*(c / max(look.hex_rgb(h)) for c in look.hex_rgb(h)), 1.0)
+    ramp.color_ramp.elements[0].position, ramp.color_ramp.elements[0].color = 0.0, norm(horizon)
+    ramp.color_ramp.elements[1].position, ramp.color_ramp.elements[1].color = 0.45, norm(zenith)
+    mx = _mix(nt, amount, sky_node.outputs[0], ramp.outputs[0], 'MULTIPLY', -100, -100)
+    _l(nt, mx, bg.inputs['Color'])
+
+
+tint_sky()
+# cool sky fill (no shadow) from the west and a warm low rim from behind the yard (north-east), COLOR_SCRIPT row 10
+FILL = look.add_light(S, 'SK_Fill', 'SUN', '#8fb8e0', 0.45, (0, 0, 50), (math.radians(55), 0, math.radians(-100)), shadow=False)   # from az 280 (rz = 180 - az)
+RIM = look.add_light(S, 'SK_Rim', 'SUN', '#ffd59a', 1.6, (0, 0, 50), (math.radians(72), 0, math.radians(160)), shadow=True)
 
 
 # ======================================================================================================== plant
@@ -610,7 +789,7 @@ def build_plant():
     for i, (x, y) in enumerate([(-4.2, 2.5), (-4.2, 3.8), (4.2, 2.8), (4.2, 5.5), (-2.5, 8.0)]):
         sklib.instance(pal, (x, y, DOCK_Z), random.Random(i).uniform(-0.05, 0.05), 'bay_pallet_%d' % i, PLANT)
     la = bpy.data.lights.new('bay_light', 'AREA')
-    la.energy, la.size, la.color = 400.0, 3.0, sklib.kelvin_rgb(5000)
+    la.energy, la.size, la.color = 400.0, 3.0, sklib.kelvin_rgb(5500)   # BRIDGE_DOCK interior 5500 K
     sklib.new_obj('bay_light', la, PLANT, loc=(0, 5.0, 7.8))
 
 
@@ -690,7 +869,15 @@ def track_mat():
 
 
 def build_yard():
-    ground_plane('yard_concrete', -34, 34, -46, 0.2, 0.0, YARD, M['concrete'], cuts=1)
+    ground_plane('yard_concrete', -34, 34, -46, 0.2, 0.0, YARD, sklib.pbr('yard_conc', 'concrete_floor_worn_001', tint=(0.64, 0.55, 0.43),
+                                                                          wear=0.55, scale=2.0), cuts=1)
+    # saw-cut joints every 6 m (dark, dirt-filled)
+    bmj = bmesh.new()
+    for x in range(-30, 31, 6):
+        bbox_bm(bmj, x - 0.012, x + 0.012, -45.8, -0.1, 0.0, 0.0012)
+    for y in range(-42, -1, 6):
+        bbox_bm(bmj, -33.8, 33.8, y - 0.012, y + 0.012, 0.0, 0.0012)
+    bm_obj('yard_joints', bmj, YARD, [sklib.flat('joint_dirt', (0.035, 0.03, 0.025), rough=0.9, var=0.3, scale=3.0)])
     # yard boundary wall (plastered brick, pillars, coping) with a gate opening on the south side (x 12..20)
     def wall_run(name, p0, p1):
         p0, p1 = Vector(p0), Vector(p1)
@@ -813,37 +1000,38 @@ def wheel_coll():
     if c:
         return c
     c = C('A-WHEEL', False)
-    # tyre: revolve a rounded section around X
-    prof = []
+    # tyre: revolved section with real tread (staggered lugs either side of a centre rib, lateral grooves)
     W, R, r_in = 0.28, WR, 0.29
-    for i in range(13):
-        a = -math.pi / 2 + math.pi * i / 12
-        prof.append((W / 2 * 0.86 * math.sin(a) * 1.0 + 0.0, R - 0.05 + 0.05 * math.cos(a), a))
-    sec = [(x, rr) for x, rr, a in prof]
-    sec = [(-W / 2, r_in)] + [(x if abs(x) < W / 2 else math.copysign(W / 2, x), rr) for x, rr in sec] + [(W / 2, r_in)]
-    sec = sorted(set(sec), key=lambda p: (p[0] if p[1] > R - 0.06 else p[0]))
-    sec = [(-W / 2, r_in), (-W / 2, R - 0.08), (-W / 2 + 0.03, R - 0.015), (-W / 2 + 0.07, R), (W / 2 - 0.07, R),
-           (W / 2 - 0.03, R - 0.015), (W / 2, R - 0.08), (W / 2, r_in)]
+    xs = [-W / 2, -W / 2, -W / 2 + 0.025, -W / 2 + 0.055, -0.04, -0.03, -0.012, 0.012, 0.03, 0.04, W / 2 - 0.055, W / 2 - 0.025, W / 2, W / 2]
     bm = bmesh.new()
-    seg = 40
+    seg = 96
     rings = []
     for k in range(seg):
         a = 2 * math.pi * k / seg
-        rings.append([bm.verts.new((x, rr * math.cos(a), rr * math.sin(a))) for x, rr in sec])
+        lugL = (k % 6) < 3
+        lugR = ((k + 3) % 6) < 3
+        rr = []
+        for j, x in enumerate(xs):
+            if j == 0 or j == len(xs) - 1:
+                r = r_in
+            elif j in (1, len(xs) - 2):
+                r = R - 0.085
+            elif j in (2, len(xs) - 3):
+                r = R - 0.02
+            elif j in (5, 6, 7, 8):        # centre rib with a groove either side
+                r = R - 0.002 if j in (6, 7) else R - 0.016
+            else:
+                r = R if (lugL if x < 0 else lugR) else R - 0.016
+            rr.append(bm.verts.new((x, r * math.cos(a), r * math.sin(a))))
+        rings.append(rr)
     for k in range(seg):
         A, B = rings[k], rings[(k + 1) % seg]
-        for j in range(len(sec) - 1):
+        for j in range(len(xs) - 1):
             bm.faces.new((A[j], A[j + 1], B[j + 1], B[j]))
-    # tread grooves: offset alternate ring vertices inward on the crown
-    for k in range(seg):
-        if k % 2:
-            for j in (3, 4):
-                v = rings[k][j]
-                v.co.y *= 0.985
-                v.co.z *= 0.985
     bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
     ty = bm_obj('tyre', bm, c, [M['tyre']])
     ty.data.shade_smooth()
+    ty.data.set_sharp_from_angle(angle=50 * D2R)
     # steel rim disc + hub + nuts
     bmr = bmesh.new()
     cyl_bm(bmr, (0, 0, 0), r_in + 0.005, 0.22, 'X', 32)
@@ -870,6 +1058,19 @@ def truck_body():
     bbox_bm(bm, -BW, BW, BOX_Y0, -0.12, BOX_Z0, IN_Z0)                     # floor slab
     bbox_bm(bm, -BW, BW, BOX_Y0, BOX_Y0 + 0.1, BOX_Z0, BOX_Z1)              # front wall
     sh = bm_obj('box_shell', bm, T, [M['white_box']], 0.03)
+    # FRP panel joint strips, side reflective tape (red/white), amber side markers
+    bmj = bmesh.new()
+    for sx in (-1, 1):
+        y = BOX_Y0 + 1.2
+        while y < -0.3:
+            bbox_bm(bmj, sx * BW - 0.006 if sx > 0 else -BW - 0.006, sx * BW + 0.006 if sx > 0 else -BW + 0.006, y - 0.025, y + 0.025,
+                    BOX_Z0 + 0.12, BOX_Z1 - 0.08)
+            y += 1.2
+    bm_obj('box_joints', bmj, T, [M['alu']], 0.003)
+    for sx in (-1, 1):
+        box('box_sidetape_%d' % sx, T, M['tape'], (sx * (BW + 0.008), BOX_Y0 / 2, BOX_Z0 + 0.22), (0.006, -BOX_Y0 - 0.3, 0.05), 0.0)
+        for k in range(4):
+            box('box_marker_%d_%d' % (sx, k), T, M['lamp_amber'], (sx * (BW + 0.03), -0.6 - k * 2.1, BOX_Z0 + 0.06), (0.03, 0.08, 0.05), 0.008)
     # rear portal frame (stainless) with corner posts, header and sill
     bmp = bmesh.new()
     for sx in (-1, 1):
@@ -990,107 +1191,170 @@ def truck_body():
     bmt = bmesh.new()
     cyl_bm(bmt, (-0.75, -4.6, 0.9), 0.14, 0.9, 'Y', 16)
     bm_obj('air_tank', bmt, T, [M['chassis']], 0.01)
-    # ---- cab (Tata Signa-like cab-over): rounded shell, raked windscreen, tumblehome
-    CY0, CY1, CZ0, CZ1 = -9.58, -7.47, 1.12, 3.06
+    # ---- cab (Tata Ultra / Ashok Leyland Ecomet-like cab-over): lofted rounded shell with raked, wrap-around
+    # windscreen, tumblehome, rounded roof; black lower fascia, grille with a chrome bar, swept corner headlamps.
+    CY0, CY1 = -9.58, -7.47
+    PROF = [(1.10, 0.04, 1.215, 0.17), (1.35, 0.0, 1.225, 0.21), (1.70, 0.02, 1.222, 0.24), (1.94, 0.06, 1.212, 0.27),
+            (2.02, 0.11, 1.200, 0.29), (2.40, 0.25, 1.175, 0.31), (2.80, 0.40, 1.150, 0.33), (2.90, 0.47, 1.135, 0.36),
+            (2.98, 0.57, 1.105, 0.40), (3.04, 0.72, 1.050, 0.46), (3.07, 0.90, 0.960, 0.50)]
+    NS, NC, NF, NB = 9, 9, 14, 6
+    N = 2 * NS + 2 * NC + NF + NB
+
+    def prof(z):
+        z = min(max(z, PROF[0][0]), PROF[-1][0])
+        for a, b in zip(PROF, PROF[1:]):
+            if a[0] <= z <= b[0]:
+                t = (z - a[0]) / (b[0] - a[0])
+                return tuple(a[i] + (b[i] - a[i]) * t for i in (1, 2, 3))
+        return PROF[-1][1:]
+
+    def ring(z, grow=0.0):
+        """Outline points (x, y) + outward normals at height z (fixed count N, index = same feature on every ring)."""
+        f, hw, r = prof(z)
+        yf = CY0 + f
+        hw += grow
+        r += grow
+        yf -= grow
+        pts = []
+        for k in range(NS):                                        # right side, back -> front
+            t = k / NS
+            pts.append(((hw, CY1 + (yf + r - CY1) * t), (1, 0)))
+        for k in range(NC):                                        # front-right corner
+            a = -math.pi / 2 * k / NC
+            pts.append(((hw - r + r * math.cos(a), yf + r + r * math.sin(a)), (math.cos(a), math.sin(a))))
+        for k in range(NF):                                        # front, right -> left
+            t = k / NF
+            pts.append(((hw - r - 2 * (hw - r) * t, yf), (0, -1)))
+        for k in range(NC):                                        # front-left corner
+            a = -math.pi / 2 - math.pi / 2 * k / NC
+            pts.append(((-(hw - r) + r * math.cos(a), yf + r + r * math.sin(a)), (math.cos(a), math.sin(a))))
+        for k in range(NS):                                        # left side, front -> back
+            t = k / NS
+            pts.append(((-hw, yf + r + (CY1 - yf - r) * t), (-1, 0)))
+        for k in range(NB):                                        # back, left -> right
+            t = k / NB
+            pts.append(((-hw + 2 * hw * t, CY1), (0, 1)))
+        return pts
+
+    ZS = [1.10, 1.22, 1.35, 1.52, 1.70, 1.84, 1.94, 2.02, 2.21, 2.40, 2.60, 2.80, 2.90, 2.98, 3.04, 3.07]
     bmc = bmesh.new()
-    rr = bmesh.ops.create_cube(bmc, size=1.0)
-    for v in bmc.verts:
-        x, y, z = v.co
-        X = x * 2 * BW * 0.995
-        Y = (CY0 + CY1) / 2 + y * (CY1 - CY0)
-        Z = (CZ0 + CZ1) / 2 + z * (CZ1 - CZ0)
-        if z > 0:
-            X *= 0.94
-            if y < 0:
-                Y += 0.42      # raked front, top set back
-        v.co = (X, Y, Z)
-    bmesh.ops.subdivide_edges(bmc, edges=bmc.edges[:], cuts=2, use_grid_fill=True)
+    rings = [[bmc.verts.new((p[0], p[1], z)) for p, n in ring(z)] for z in ZS]
+    for A, B in zip(rings, rings[1:]):
+        for k in range(N):
+            bmc.faces.new((A[k], A[(k + 1) % N], B[(k + 1) % N], B[k]))
+    bmc.faces.new(rings[-1])
+    bmc.faces.new(list(reversed(rings[0])))
+    bmesh.ops.recalc_face_normals(bmc, faces=bmc.faces[:])
     cabo = bm_obj('cab_shell', bmc, T, [M['cab']])
-    bv = cabo.modifiers.new('Bevel', 'BEVEL')
-    bv.width, bv.segments, bv.limit_method, bv.angle_limit = 0.21, 6, 'ANGLE', 30 * D2R
-    bv.use_clamp_overlap = True
     cabo.data.shade_smooth()
-    cabo.modifiers.new('WeightedNormal', 'WEIGHTED_NORMAL').keep_sharp = True
-    sklib.apply_mods(cabo)
-    sklib.box_uv(cabo)
-    rake = math.atan2(0.42, CZ1 - CZ0)
+    cabo.data.set_sharp_from_angle(angle=38 * D2R)
 
-    def front_y(z):   # y of the raked front face at height z
-        t = (z - CZ0) / (CZ1 - CZ0)
-        return CY0 + 0.42 * t
+    def patch(name, i0, i1, z0, z1, off, mat, nz=5, bev=None, solid=0.0):
+        """Panel following the shell surface: outline indices i0..i1, heights z0..z1, pushed out by off."""
+        bm = bmesh.new()
+        rows = []
+        for j in range(nz + 1):
+            z = z0 + (z1 - z0) * j / nz
+            rp = ring(z, off)
+            rows.append([bm.verts.new((rp[i][0][0], rp[i][0][1], z)) for i in range(i0, i1 + 1)])
+        for A, B in zip(rows, rows[1:]):
+            for k in range(len(A) - 1):
+                bm.faces.new((A[k], A[k + 1], B[k + 1], B[k]))
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+        o = bm_obj(name, bm, T, [mat], bev)
+        o.data.shade_smooth()
+        if solid:
+            o.modifiers.new('sol', 'SOLIDIFY').thickness = solid
+        return o
 
-    # windscreen (glass, proud of the face) with black gasket, split by a thin centre pillar
-    for name, z0, z1, w, mat, prot in (('cab_ws_gasket', 2.0, 2.84, 2.06, M['rubber'], 0.008), ('cab_windscreen', 2.03, 2.81, 1.98, M['glass'], 0.016)):
-        zc = (z0 + z1) / 2
-        o = box(name, T, mat, (0, front_y(zc) - prot, zc), (w, 0.02, z1 - z0), 0.01, rot=(-rake, 0, 0))
-    for sx in (-1, 1):   # black A-pillars and corner deflectors
-        box('cab_apillar_%d' % sx, T, M['cab_dark'], (sx * 1.02, front_y(2.42) - 0.02, 2.42), (0.07, 0.03, 0.86), 0.01, rot=(-rake, 0, 0))
-        box('cab_deflector_%d' % sx, T, M['cab_dark'], (sx * 1.16, front_y(2.0) + 0.12, 2.0), (0.05, 0.22, 1.5), 0.02, rot=(-rake, 0, sx * 0.35))
-    box('cab_grille_frame', T, M['stainless'], (0, front_y(1.63) - 0.03, 1.63), (1.74, 0.03, 0.6), 0.015, rot=(-rake, 0, 0))
-    # lower fascia, grille with slats, headlamps, indicators
-    zc = 1.62
-    box('cab_fascia', T, M['cab_dark'], (0, front_y(zc) - 0.012, zc), (2.12, 0.03, 0.75), 0.015, rot=(-rake, 0, 0))
+    F0 = NS                    # first front-right corner index
+    FL = NS + NC + NF          # first front-left corner index
+    # wrap-around windscreen: gasket, glass; black lower fascia; grille + chrome bar; corner headlamps; indicators
+    patch('cab_ws_gasket', F0 + 3, FL + NC - 4, 2.05, 2.86, 0.006, M['rubber'], 6)
+    patch('cab_windscreen', F0 + 4, FL + NC - 5, 2.08, 2.83, 0.011, M['glass'], 6)
+    patch('cab_fascia', F0 + 2, FL + NC - 3, 1.12, 1.88, 0.008, M['cab_dark'], 6, solid=0.01)
+    yf = lambda z: CY0 + prof(z)[0]
     bmg = bmesh.new()
-    for k in range(6):
-        z = 1.40 + k * 0.085
-        bbox_bm(bmg, -0.80, 0.80, -0.03, 0.03, z, z + 0.035)
-    for sx in (-0.81, 0.81):
-        bbox_bm(bmg, sx - 0.02, sx + 0.02, -0.03, 0.03, 1.37, 1.88)
-    go = bm_obj('cab_grille', bmg, T, [sklib.painted_metal((0.16, 0.16, 0.17), 0.25, contrast=0.4)], 0.006)
-    go.location = (0, front_y(1.62) - 0.055, 0)
-    go.rotation_euler.x = rake * 0.0
+    for k in range(7):
+        z = 1.32 + k * 0.064
+        bbox_bm(bmg, -0.68, 0.68, -0.025, 0.0, z, z + 0.028)
+    for xx in (-0.69, -0.23, 0.23, 0.69):
+        bbox_bm(bmg, xx - 0.015, xx + 0.015, -0.025, 0.0, 1.30, 1.78)
+    go = bm_obj('cab_grille', bmg, T, [sklib.painted_metal((0.03, 0.03, 0.032), 0.3, contrast=0.4)], 0.004)
+    go.location = (0, yf(1.55) - 0.012, 0)
+    box('cab_chrome_bar', T, M['stainless'], (0, yf(1.80) - 0.03, 1.80), (1.62, 0.03, 0.07), 0.012)
+    box('cab_chrome_bar2', T, M['stainless'], (0, yf(1.27) - 0.03, 1.27), (1.30, 0.025, 0.035), 0.008)
     for sx in (-1, 1):
-        box('cab_headlamp_%d' % sx, T, M['lamp'], (sx * 0.9, front_y(1.55) - 0.04, 1.55), (0.30, 0.05, 0.2), 0.02, rot=(-rake, 0, 0))
-        box('cab_headlamp_bezel_%d' % sx, T, M['stainless'], (sx * 0.9, front_y(1.55) - 0.03, 1.55), (0.34, 0.04, 0.24), 0.015, rot=(-rake, 0, 0))
-        box('cab_indicator_%d' % sx, T, M['lamp_amber'], (sx * 0.9, front_y(1.78) - 0.035, 1.78), (0.30, 0.04, 0.07), 0.015, rot=(-rake, 0, 0))
-    # bumper with fog lamps + blank plate
-    bmb = bmesh.new()
-    bbox_bm(bmb, -1.22, 1.22, CY0 - 0.20, CY0 + 0.05, 0.72, 1.12)
-    bm_obj('cab_bumper', bmb, T, [grimed(sklib.painted_metal((0.22, 0.23, 0.24), 0.35, 0.3), 'bumper_grey', 0.3, 1.1)], 0.04)
-    for sx in (-1, 1):
-        cy = bmesh.new()
-        cyl_bm(cy, (sx * 0.9, CY0 - 0.205, 0.9), 0.07, 0.03, 'Y', 20)
-        bm_obj('cab_foglamp_%d' % sx, cy, T, [M['lamp']], 0.005)
-    box('cab_plate', T, M['plate'], (0, CY0 - 0.215, 0.92), (0.52, 0.012, 0.13), 0.004)
-    box('cab_tow', T, M['chassis'], (0, CY0 - 0.21, 0.76), (0.18, 0.04, 0.08), 0.01)
-    # sun visor over the windscreen
-    box('cab_visor', T, M['cab_dark'], (0, front_y(3.0) - 0.16, 2.97), (2.06, 0.34, 0.03), 0.01, rot=(-8 * D2R, 0, 0))
-    # wipers
-    for sx in (-0.55, 0.35):
-        o = box('cab_wiper_%g' % sx, T, M['rubber'], (sx, front_y(2.18) - 0.035, 2.2), (0.85, 0.015, 0.02), 0.003)
-        o.rotation_euler = (-rake, 0.18, 0)
-    # side windows, door handles, steps
-    for sx in (-1, 1):
-        box('cab_sidewin_%d' % sx, T, M['glass'], (sx * (BW * (0.995 - 0.055 * (2.40 - CZ0) / (CZ1 - CZ0)) + 0.006), -8.55, 2.40), (0.02, 1.15, 0.62), 0.01)
-        box('cab_doorline_%d' % sx, T, M['rubber'], (sx * (BW * 0.995 + 0.002), -7.95, 1.9), (0.006, 0.012, 1.4), 0.0)
-        box('cab_handle_%d' % sx, T, M['cab_dark'], (sx * (BW * 0.995 + 0.012), -8.1, 1.95), (0.02, 0.2, 0.05), 0.008)
+        a, b = (F0 + 1, F0 + NC + 2) if sx > 0 else (FL - 3, FL + NC - 2)
+        patch('cab_headlamp_%d' % sx, a, b, 1.52, 1.74, 0.02, M['lamp'], 3)
+        patch('cab_headlamp_bezel_%d' % sx, a - 1, b + 1, 1.49, 1.77, 0.014, M['stainless'], 3)
+        patch('cab_indicator_%d' % sx, a, b, 1.42, 1.49, 0.02, M['lamp_amber'], 1)
+        # side repeater + door shut lines, handle, grab rail, side window with vent split
+        side_x = lambda z: sx * (prof(z)[1] + 0.004)
+        box('cab_doorline_f%d' % sx, T, M['rubber'], (side_x(1.9), -9.18, 1.92), (0.008, 0.012, 1.55), 0.0)
+        box('cab_doorline_r%d' % sx, T, M['rubber'], (side_x(1.9), -7.92, 1.92), (0.008, 0.012, 1.55), 0.0)
+        box('cab_handle_%d' % sx, T, M['cab_dark'], (side_x(1.95) + sx * 0.01, -8.05, 1.95), (0.02, 0.2, 0.05), 0.008)
+        box('cab_grab_%d' % sx, T, M['stainless'], (side_x(1.7) + sx * 0.03, -7.86, 1.75), (0.025, 0.025, 0.7), 0.008)
+        bmw = bmesh.new()
+        rows = []
+        for j in range(4):
+            z = 2.06 + 0.68 * j / 3
+            xw = sx * (prof(z)[1] + 0.008)
+            rows.append([bmw.verts.new((xw, y, z)) for y in (-9.12, -8.05)])
+        for A, B in zip(rows, rows[1:]):
+            bmw.faces.new((A[0], A[1], B[1], B[0]))
+        bmesh.ops.recalc_face_normals(bmw, faces=bmw.faces[:])
+        bm_obj('cab_sidewin_%d' % sx, bmw, T, [M['glass']], None)
+        box('cab_vent_%d' % sx, T, M['rubber'], (sx * (prof(2.4)[1] + 0.012), -8.85, 2.4), (0.012, 0.025, 0.7), 0.0)
+        box('cab_repeater_%d' % sx, T, M['lamp_amber'], (side_x(1.6) + sx * 0.01, -9.3, 1.6), (0.02, 0.1, 0.05), 0.01)
         for k, z in enumerate((0.48, 0.86)):
-            box('cab_step_%d_%d' % (sx, k), T, M['alu'], (sx * 1.12, -7.75, z), (0.24, 0.36, 0.04), 0.008)
+            box('cab_step_%d_%d' % (sx, k), T, M['alu'], (sx * 1.10, -7.75, z), (0.26, 0.38, 0.04), 0.008)
         box('cab_step_brk_%d' % sx, T, M['chassis'], (sx * 1.0, -7.75, 0.75), (0.04, 0.3, 0.6), 0.008)
-        # mirrors on arms
+        # mirrors on tubular arms (main + kerb)
         bmm = bmesh.new()
-        cyl_bm(bmm, (0, 0, 0), 0.016, 0.42, 'X', 8)
+        cyl_bm(bmm, (0, 0, 0), 0.016, 0.36, 'X', 8)
         mo = bm_obj('cab_mirror_arm_%d' % sx, bmm, T, [M['cab_dark']], None)
-        mo.location = (sx * 1.40, -9.25, 2.82)
+        mo.location = (sx * 1.30, -9.05, 2.80)
         bmm2 = bmesh.new()
-        cyl_bm(bmm2, (0, 0, 0), 0.016, 0.36, 'Z', 8)
+        cyl_bm(bmm2, (0, 0, 0), 0.016, 0.42, 'Z', 8)
         mo2 = bm_obj('cab_mirror_stay_%d' % sx, bmm2, T, [M['cab_dark']], None)
-        mo2.location = (sx * 1.60, -9.25, 2.66)
-        box('cab_mirror_head_%d' % sx, T, M['cab_dark'], (sx * 1.62, -9.22, 2.32), (0.07, 0.24, 0.42), 0.025)
-        box('cab_mirror_glass_%d' % sx, T, M['mirror'], (sx * 1.62, -9.105, 2.32), (0.05, 0.005, 0.38), 0.0)
-        box('cab_mirror_kerb_%d' % sx, T, M['cab_dark'], (sx * 1.58, -9.22, 2.02), (0.06, 0.18, 0.18), 0.02)
-        # front wheel arches
+        mo2.location = (sx * 1.47, -9.05, 2.62)
+        box('cab_mirror_head_%d' % sx, T, M['cab_dark'], (sx * 1.49, -9.08, 2.30), (0.07, 0.26, 0.44), 0.03)
+        box('cab_mirror_glass_%d' % sx, T, M['mirror'], (sx * 1.49, -8.947, 2.30), (0.05, 0.005, 0.40), 0.0)
+        box('cab_mirror_kerb_%d' % sx, T, M['cab_dark'], (sx * 1.46, -9.10, 1.98), (0.06, 0.2, 0.2), 0.025)
+        # front wheel arch liners (black)
         bma2 = bmesh.new()
-        n = 10
+        n = 12
         vv = []
         for k in range(n + 1):
             a = math.pi * k / n
-            y, z = FRONT_AX + 0.62 * math.cos(a), WR + 0.62 * math.sin(a) * 0.95
-            vv.append((bma2.verts.new((sx * 0.86, y, z)), bma2.verts.new((sx * 1.22, y, z))))
+            y, z = FRONT_AX + 0.64 * math.cos(a), WR + 0.64 * math.sin(a) * 0.95
+            vv.append((bma2.verts.new((sx * 0.84, y, z)), bma2.verts.new((sx * 1.235, y, z))))
         for k in range(n):
             bma2.faces.new((vv[k][0], vv[k + 1][0], vv[k + 1][1], vv[k][1]))
         o = bm_obj('cab_arch_%d' % sx, bma2, T, [M['rubber']])
-        o.modifiers.new('sol', 'SOLIDIFY').thickness = 0.01
+        o.modifiers.new('sol', 'SOLIDIFY').thickness = 0.012
+    # bumper (grey, bevelled, wraps the corners) with fog lamps, tow eye, blank yellow plate, corner steps
+    bmb = bmesh.new()
+    bbox_bm(bmb, -1.18, 1.18, CY0 - 0.16, CY0 + 0.12, 0.70, 1.10)
+    for sx in (-1, 1):
+        bbox_bm(bmb, sx * 1.04 - 0.14, sx * 1.04 + 0.14, CY0 - 0.10, CY0 + 0.35, 0.70, 1.10)
+    bm_obj('cab_bumper', bmb, T, [grimed(sklib.painted_metal((0.20, 0.205, 0.21), 0.35, 0.3), 'bumper_grey', 0.3, 1.1)], 0.05)
+    for sx in (-1, 1):
+        cy = bmesh.new()
+        cyl_bm(cy, (sx * 0.86, CY0 - 0.165, 0.86), 0.065, 0.03, 'Y', 20)
+        bm_obj('cab_foglamp_%d' % sx, cy, T, [M['lamp']], 0.005)
+        box('cab_bstep_%d' % sx, T, M['rubber'], (sx * 0.98, CY0 - 0.06, 0.995), (0.32, 0.2, 0.03), 0.006)
+    box('cab_plate', T, M['plate'], (0, CY0 - 0.172, 0.88), (0.52, 0.012, 0.13), 0.004)
+    box('cab_tow', T, M['chassis'], (0, CY0 - 0.17, 0.75), (0.18, 0.04, 0.07), 0.01)
+    # sun visor, roof marker lamps, wipers
+    box('cab_visor', T, M['cab_dark'], (0, yf(2.95) - 0.14, 2.95), (2.0, 0.30, 0.03), 0.01, rot=(-8 * D2R, 0, 0))
+    for xx in (-0.35, 0.0, 0.35):
+        box('cab_marker_%g' % xx, T, M['lamp_amber'], (xx, yf(3.06) + 0.05, 3.08), (0.12, 0.05, 0.04), 0.01)
+    rake = math.atan2(0.29, 0.78)
+    for sx in (-0.52, 0.34):
+        o = box('cab_wiper_%g' % sx, T, M['rubber'], (sx, yf(2.13) - 0.03, 2.13), (0.80, 0.015, 0.02), 0.003)
+        o.rotation_euler = (-rake, 0.10, 0)
     # cab rear wall shadow gap filler (between cab and box) + exhaust stack
     box('cab_backwall', T, M['chassis'], (0, CY1 + 0.02, 2.0), (2.2, 0.04, 1.6), 0.01)
     bme = bmesh.new()
@@ -1154,6 +1418,10 @@ VAR = sklib.new_obj('TRUCK_PARKED', None, None, loc=(-17.0, -21.0, 0), rot=(0, 0
 sklib.instance(TRUCK, (0, 0, 0), 0.0, 'A-TRUCK-REEFER.parked', None).parent = VAR
 box_roof('truck_parked_roof', S.collection, VAR)
 rear_doors('parked', S.collection, VAR, False)
+DOCK2 = sklib.new_obj('TRUCK_DOCK2', None, None, loc=(-9.0, -0.45, 0))       # second reefer waiting at the west dock
+sklib.instance(TRUCK, (0, 0, 0), 0.0, 'A-TRUCK-REEFER.dock2', None).parent = DOCK2
+box_roof('truck_dock2_roof', S.collection, DOCK2)
+rear_doors('dock2', S.collection, DOCK2, False)
 
 # cut-away roof: hidden while the camera flies through the body, back once the camera is out over the cab
 for f, h in ((1, True), (60, True), (61, False)):
@@ -1222,7 +1490,7 @@ def build_yard_extras():
     cyl_bm(bm, (0, 1.2, 1.75), 0.15, 0.7, 'Z', 16, 2)                 # LPG bottle
     bm_obj('forklift.mesh', bm, fk, [body, M['rubber'], M['chassis'], M['galv'], M['tyre']], 0.012)
     sklib.instance(cp, (0, -1.45, 0.115), 0.0, 'fk_load', fk)
-    sklib.instance(fk, (-5.0, -9.6, 0), math.pi + 0.15, 'A-FORKLIFT.inst', Y)
+    # (forklift removed in r4: read as a toy; the yard uses pallet jacks and hand-carried crates)
     # pallet jack with a loaded pallet, pulled by a worker
     pj = C('A-PALLETJACK', False)
     bm = bmesh.new()
@@ -1277,6 +1545,113 @@ def build_yard_extras():
 
 
 build_yard_extras()
+
+
+# ======================================================================================================== lived-in yard
+def grass_tuft_coll():
+    c = C('A-GRASS-TUFT', False)
+    rng = random.Random(5)
+    verts, faces, uvs = [], [], []
+    for k in range(16):
+        a = rng.uniform(0, 6.28)
+        L = rng.uniform(0.12, 0.38)
+        lean = rng.uniform(0.15, 0.7)
+        w = rng.uniform(0.008, 0.016)
+        base = Vector((rng.gauss(0, 0.05), rng.gauss(0, 0.05), 0))
+        d = Vector((math.cos(a), math.sin(a), 0))
+        side = Vector((-d.y, d.x, 0))
+        b0 = len(verts)
+        for i in range(4):
+            t = i / 3
+            p = base + d * L * lean * t * t + Vector((0, 0, L * t * (1 - 0.35 * lean * t)))
+            ww = w * (1 - t) + 0.001
+            verts += [tuple(p - side * ww), tuple(p + side * ww)]
+            uvs += [(0, t), (1, t)]
+            if i:
+                k2 = b0 + 2 * i
+                faces.append((k2 - 2, k2 - 1, k2 + 1, k2))
+    uv_strip_obj('grass_tuft', verts, faces, uvs, c, leaf_mat('grass_blade', (0.10, 0.16, 0.03), (0.30, 0.28, 0.09), cut=False))
+    return c
+
+
+def build_yard_life2():
+    Y = bpy.data.collections['A-YARD-LIFE']
+    rng = random.Random(81)
+    stack = bpy.data.collections['A-CRATE-STACK']
+    cp = bpy.data.collections['A-CRATE-PALLET']
+    # crate staging area west of the hero truck: stacks of empty crates, a loaded pallet, white insulated fish boxes
+    for i, (x, y, r) in enumerate([(-5.3, -8.9, 0.08), (-6.1, -8.95, -0.05), (-5.35, -9.65, 0.25), (-6.15, -9.75, 0.02),
+                                   (-4.55, -9.2, -0.15), (-6.9, -9.3, 0.4)]):
+        sklib.instance(stack, (x, y, 0), r, 'stage_stack_%d' % i, Y)
+    sklib.instance(cp, (-6.0, -12.6, 0), 0.12, 'stage_pallet', Y)
+    ib = C('A-ICEBOX', False)
+    bm = bmesh.new()
+    bbox_bm(bm, -0.55, 0.55, -0.38, 0.38, 0.0, 0.62)
+    bbox_bm(bm, -0.57, 0.57, -0.40, 0.40, 0.62, 0.70, 1)
+    bm_obj('icebox', bm, ib, [grimed(sklib.plastic((0.04, 0.17, 0.45), 0.35, name='icebox_blue'), 'icebox_g', 0.0, 0.5,
+                                       (0.30, 0.27, 0.22), 0.6), sklib.plastic((0.80, 0.80, 0.77), 0.35, name='icebox_lid')], 0.035)
+    for i, (x, y, r, z) in enumerate([(-3.2, -10.3, 0.1, 0.0), (-3.25, -10.32, 0.14, 0.70), (-2.0, -10.6, -0.2, 0.0),
+                                      (10.2, -3.2, 0.05, 0.0), (10.25, -3.2, 0.0, 0.70)]):
+        sklib.instance(ib, (x, y, z), r, 'icebox_%d' % i, Y)
+    # loose crates on the ground (one tipped on its side)
+    for i, (x, y, r) in enumerate([(-4.5, -12.3, 0.6), (2.6, -12.4, 1.2), (12.4, -8.6, 0.3)]):
+        sklib.instance(bpy.data.collections['A-CRATE-1'], (x, y, 0), r, 'loose_crate_%d' % i, Y)
+    e = sklib.instance(bpy.data.collections['A-CRATE-1'], (-2.6, -12.9, 0.2), 0.4, 'tipped_crate', Y)
+    e.rotation_euler.x = math.pi / 2
+    # water hose from the dock wall tap to the drain
+    cu = bpy.data.curves.new('hose', 'CURVE')
+    cu.dimensions = '3D'
+    cu.bevel_depth, cu.bevel_resolution = 0.022, 2
+    sp = cu.splines.new('NURBS')
+    pts = [(3.45, -0.12, 1.0), (3.45, -0.25, 0.3), (3.5, -0.6, 0.024), (4.3, -1.9, 0.024), (3.7, -3.4, 0.024), (4.6, -4.6, 0.024),
+           (5.6, -5.4, 0.024), (6.3, -6.2, 0.024), (6.45, -6.45, 0.024)]
+    sp.points.add(len(pts) - 1)
+    for p, co in zip(sp.points, pts):
+        p.co = co + (1,)
+    sp.use_endpoint_u, sp.order_u = True, 3
+    ho = sklib.new_obj('hose', cu, Y)
+    cu.materials.append(grimed(sklib.plastic((0.05, 0.28, 0.08), 0.3, name='hose_green'), 'hose_g', 0.0, 0.05, (0.25, 0.2, 0.15), 0.5))
+    box('tap', Y, M['galv'], (3.45, -0.06, 1.05), (0.06, 0.12, 0.06), 0.01)
+    wet = decal_mat('wet_concrete', (0.05, 0.045, 0.04), 0.7, 1.3, 0.40, 0.62, rough=0.12)
+    for i, (x, y, sx, sy, r) in enumerate([(0.9, -3.0, 1.6, 5.0, 0.1), (5.2, -5.4, 2.6, 1.6, 0.7), (-1.0, -1.6, 2.2, 1.4, 0.0)]):
+        decal('wet_%d' % i, Y, wet, (x, y, 0.0032 + i * 1e-4), (sx, sy), r)
+    # dust / sand drifts: along the walls and the plinth, plus broad scuffed patches in the traffic lanes
+    dust = decal_mat('dust_drift', (0.40, 0.31, 0.20), 0.85, 1.1, 0.36, 0.60, rough=0.9)
+    grime = decal_mat('yard_grime', (0.13, 0.115, 0.09), 0.55, 0.45, 0.33, 0.66, rough=0.8)
+    for i in range(26):
+        if i < 10:
+            x, y, sx, sy, r = rng.uniform(-32, 32), rng.uniform(-45.5, -43.5), rng.uniform(4, 9), rng.uniform(1.5, 3), 0.0
+        elif i < 16:
+            x, y, sx, sy, r = rng.choice((-33, 33)) * 0.97, rng.uniform(-42, -4), rng.uniform(1.5, 3), rng.uniform(4, 9), 0.0
+        else:
+            x, y, sx, sy, r = rng.uniform(-28, 28), rng.uniform(-1.6, -0.9), rng.uniform(3, 6), rng.uniform(0.8, 1.4), 0.0
+        decal('dust_%d' % i, Y, dust, (x, y, 0.0026 + i * 2e-5), (sx, sy), r)
+    for i in range(30):
+        decal('grime_%d' % i, Y, grime, (rng.uniform(-30, 30), rng.uniform(-44, -4), 0.0024 + i * 1e-5),
+              (rng.uniform(5, 14), rng.uniform(4, 9)), rng.uniform(0, 3))
+    # weeds in the wall base, plinth base and the yard edge
+    gt = grass_tuft_coll()
+    k = 0
+    for (x0, y0, x1, y1, n) in ((-33.7, -45.7, 11.6, -45.7, 70), (20.4, -45.7, 33.7, -45.7, 25), (-33.7, -45.5, -33.7, -1.0, 55),
+                                (33.7, -45.5, 33.7, -1.0, 55), (-29.5, -0.12, -12.0, -0.12, 22), (12.0, -0.12, 29.5, -0.12, 22)):
+        for i in range(n):
+            t = rng.random()
+            x = x0 + (x1 - x0) * t + rng.gauss(0, 0.06)
+            y = y0 + (y1 - y0) * t + rng.gauss(0, 0.06)
+            sklib.instance(gt, (x, y, 0), rng.uniform(0, 6.28), 'weed_%d' % k, Y, rng.uniform(0.6, 1.5))
+            k += 1
+    # scraps: flattened cardboard, a torn tarp, a broom against the wall
+    for i, (x, y, r) in enumerate([(14.8, -9.5, 0.4), (-9.6, -14.2, 1.1), (21.0, -20.0, 2.0)]):
+        box('cardboard_%d' % i, Y, sklib.cardboard_kraft(0.5), (x, y, 0.004), (0.9, 0.6, 0.006), 0.0, rot=(0, 0, r))
+    box('tarp_scrap', Y, M['tarp_blue'], (-14.6, -6.0, 0.004), (1.6, 1.1, 0.004), 0.0, rot=(0, 0, 0.5))
+    bmb = bmesh.new()
+    cyl_bm(bmb, (0, 0, 0.7), 0.014, 1.4, seg=8)
+    bbox_bm(bmb, -0.18, 0.18, -0.03, 0.03, 0.0, 0.16, 1)
+    br = bm_obj('broom', bmb, Y, [M['wood'], sklib.plastic((0.55, 0.45, 0.25), 0.5, name='broom_bristle')], 0.003)
+    br.location, br.rotation_euler = (5.7, -0.3, 0.0), (0.22, 0, 0.3)
+
+
+build_yard_life2()
 
 
 # ======================================================================================================== cargo
@@ -1434,28 +1809,69 @@ def tree_palm(name, seed, height=11.0):
     return c
 
 
-def tree_low(name, seed, height=7.0):
-    """Far-field tree: trunk + 3 lumpy clumps (for the aerial)."""
+def tree_low(name, seed, height=7.0, wide=1.0, mat='leaf_blob'):
+    """Mid/far broadleaf (mango/neem/tamarind): short trunk + 3 limbs, 9-12 noise-displaced crown clumps forming one
+    irregular canopy (not a ball on a stick)."""
     c = C(name, False)
     rng = random.Random(seed)
     bm = bmesh.new()
-    cyl_bm(bm, (0, 0, height * 0.25), 0.18, height * 0.5, seg=6, r2=0.1)
+    th = height * 0.30
+    cyl_bm(bm, (0, 0, th / 2), 0.20 * height / 7, th, seg=7, r2=0.13 * height / 7)
+    for k in range(3):
+        a = k * 2.1 + rng.uniform(-0.4, 0.4)
+        L = height * 0.3
+        d = Vector((math.cos(a) * 0.7 * wide, math.sin(a) * 0.7 * wide, 0.75)).normalized()
+        q = d.to_track_quat('Z', 'Y').to_matrix().to_4x4()
+        bmesh.ops.create_cone(bm, cap_ends=True, segments=6, radius1=0.09 * height / 7, radius2=0.04, depth=L,
+                              matrix=Matrix.Translation(Vector((0, 0, th * 0.92)) + d * L / 2) @ q)
     bm_obj(name + '.trunk', bm, c, [M['bark']], None)
     bmc = bmesh.new()
-    for k in range(6):
-        cc = Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-0.2, 0.4))) * height * 0.22 + Vector((0, 0, height * 0.66))
-        bmesh.ops.create_icosphere(bmc, subdivisions=2, radius=height * rng.uniform(0.17, 0.24),
-                                   matrix=Matrix.Translation(cc) @ Matrix.Diagonal((1, 1, 0.65, 1)))
+    nclump = rng.randint(9, 12)
+    for k in range(nclump):
+        a = rng.uniform(0, 6.28)
+        rr = rng.uniform(0.0, 0.33) * height * wide
+        cc = Vector((math.cos(a) * rr, math.sin(a) * rr, height * rng.uniform(0.42, 0.74)))
+        r = height * rng.uniform(0.17, 0.26) * (wide ** 0.4)
+        bmesh.ops.create_icosphere(bmc, subdivisions=2, radius=r, matrix=Matrix.Translation(cc) @ Matrix.Diagonal((1, 1, 0.72, 1)))
+    off = Vector((seed * 3.1, seed * 1.7, 0.0))
     for v in bmc.verts:
-        v.co += Vector((rng.uniform(-1, 1), rng.uniform(-1, 1), rng.uniform(-1, 1))) * height * 0.03
-    cr = bm_obj(name + '.crown', bmc, c, [M['leaf_blob']], None, uv=False)
+        p = v.co / height * 2.6 + off
+        v.co += Vector((mnoise.noise(p), mnoise.noise(p + Vector((5.2, 1.3, 0))), mnoise.noise(p + Vector((2.1, 7.7, 0))))) * height * 0.09
+    cr = bm_obj(name + '.crown', bmc, c, [M[mat]], None, uv=False)
     cr.data.shade_smooth()
     return c
 
 
+def tree_casuarina(name, seed, height=14.0):
+    """Coastal casuarina: straight thin trunk, narrow ragged conical crown in lumps (shelter belts behind the beach)."""
+    c = C(name, False)
+    rng = random.Random(seed)
+    bm = bmesh.new()
+    cyl_bm(bm, (0, 0, height * 0.45), 0.13, height * 0.9, seg=6, r2=0.05)
+    bm_obj(name + '.trunk', bm, c, [M['bark']], None)
+    bmc = bmesh.new()
+    for k in range(9):
+        t = k / 8
+        z = height * (0.28 + 0.66 * t)
+        r = height * (0.16 * (1 - t) + 0.04) * rng.uniform(0.8, 1.2)
+        cc = Vector((rng.gauss(0, 0.25), rng.gauss(0, 0.25), z))
+        bmesh.ops.create_icosphere(bmc, subdivisions=1, radius=r, matrix=Matrix.Translation(cc) @ Matrix.Diagonal((1, 1, 1.5, 1)))
+    for v in bmc.verts:
+        p = v.co * 0.5 + Vector((seed, 0, 0))
+        v.co += Vector((mnoise.noise(p), mnoise.noise(p + Vector((4, 0, 0))), 0)) * height * 0.04
+    cr = bm_obj(name + '.crown', bmc, c, [M['leaf_casuarina']], None, uv=False)
+    cr.data.shade_smooth()
+    return c
+
+
+M['leaf_mango_blob'] = leaf_mat('leaf_mango_blob', (0.014, 0.042, 0.012), (0.035, 0.08, 0.022), cut=False)
+M['leaf_casuarina'] = leaf_mat('leaf_casuarina', (0.035, 0.06, 0.03), (0.07, 0.10, 0.05), cut=False)
+from mathutils import noise as mnoise  # noqa: E402
 TREES_HI = [tree_neem('A-VEG-TREE-neem%d' % i, 10 + i, height=h) for i, h in enumerate((6.5, 8.5, 7.5))]
-PALMS = [tree_palm('A-VEG-PALM-%d' % i, 40 + i, height=h) for i, h in enumerate((10.0, 12.5, 8.5))]
-TREES_LO = [tree_low('A-VEG-TREE-low%d' % i, 70 + i, height=h) for i, h in enumerate((6.0, 8.0, 9.5))]
+PALMS = [tree_palm('A-VEG-PALM-%d' % i, 40 + i, height=h) for i, h in enumerate((10.0, 12.5, 8.5, 14.0))]
+TREES_LO = [tree_low('A-VEG-TREE-low%d' % i, 70 + i, height=h, wide=w) for i, (h, w) in enumerate(((6.0, 1.0), (8.0, 1.15), (9.5, 0.9)))]
+MANGO = [tree_low('A-VEG-TREE-mango%d' % i, 90 + i, height=h, wide=1.35, mat='leaf_mango_blob') for i, h in enumerate((7.0, 8.5, 9.5))]
+CASUA = [tree_casuarina('A-VEG-CASUARINA-%d' % i, 120 + i, height=h) for i, h in enumerate((13.0, 15.5, 17.0))]
 
 
 # ======================================================================================================== landscape
@@ -1465,19 +1881,20 @@ ROAD_Y = -60.0
 
 
 def coast_x(y):
-    return 1150.0 + 0.5 * y
+    return COAST0 + 0.5 * y
 
 
-from mathutils import noise as mnoise
+def coast_dist(x, y):
+    return (x - coast_x(y)) * 0.894
 
 
 def land_h(x, y):
-    """Gentle inland relief (0-25 m), flat along the road, around the plant and on the coastal pond plain."""
+    """Rolling inland relief (0-35 m), flat along the road, around the plant and on the coastal pond plain."""
     m = min(1.0, max(0.0, (abs(y - ROAD_Y) - 25.0) / 120.0))
     m *= min(1.0, max(0.0, (math.hypot(x, y + 20.0) - 90.0) / 150.0))
-    m *= min(1.0, max(0.0, (coast_x(y) - 760.0 - x) / 400.0))
-    h = (mnoise.fractal(Vector((x / 600.0, y / 600.0, 2.1)), 0.7, 2.0, 4) * 0.5 + 0.5) * 18.0
-    h += 7.0 * mnoise.noise(Vector((x / 170.0, y / 170.0, 4.2)))
+    m *= min(1.0, max(0.0, (coast_x(y) - 860.0 - x) / 350.0))
+    h = (mnoise.fractal(Vector((x / 550.0, y / 550.0, 2.1)), 0.7, 2.0, 4) * 0.5 + 0.5) * 26.0
+    h += 10.0 * mnoise.noise(Vector((x / 170.0, y / 170.0, 4.2)))
     return max(0.0, h) * m
 
 
@@ -1497,74 +1914,164 @@ def sway(e, rng, amount=0.018):
             m.strength, m.scale, m.phase = amount, rng.uniform(28, 45), rng.uniform(0, 100)
 
 
-def build_land():
-    # land with gentle relief (flat at the road, plant and pond plain), slightly below yard level
+POND_BLOCKS = []      # (cx, cy, half_x, half_y, angle) for scatter exclusion
+
+
+def in_ponds(x, y, pad=8.0):
+    for cx, cy, hx, hy, a in POND_BLOCKS:
+        dx, dy = x - cx, y - cy
+        u = dx * math.cos(a) + dy * math.sin(a)
+        v = -dx * math.sin(a) + dy * math.cos(a)
+        if abs(u) < hx + pad and abs(v) < hy + pad:
+            return True
+    return False
+
+
+def strip(name, coll, mat, d0, d1, z0, z1, y0=-4000.0, y1=6000.0, n=60):
+    """Ribbon parallel to the coast between signed coast distances d0..d1 (m) at heights z0..z1."""
+    verts, faces = [], []
+    for i in range(n + 1):
+        y = y0 + (y1 - y0) * i / n
+        for d, z in ((d0, z0), (d1, z1)):
+            verts.append((coast_x(y) + d / 0.894, y, z))
+        if i:
+            k = 2 * i
+            faces.append((k - 2, k - 1, k + 1, k))
+    me = bpy.data.meshes.new(name)
+    me.from_pydata(verts, [], faces)
+    ob = sklib.new_obj(name, me, coll)
+    me.materials.append(mat)
+    return ob
+
+
+def boat_coll(name, hull_col, seed):
+    """Vizag beach fishing boat (FRP, ~8 m): pointed hull with sheer, painted band, small deck house aft."""
+    c = C(name, False)
+    rng = random.Random(seed)
     bm = bmesh.new()
-    rows = grid_bm(bm, -4000, 4500, -4000, 6000, 170, 200, -0.03)
+    L, Wd, H = 8.0, 1.6, 0.9
+    secs = []
+    for i in range(9):
+        t = i / 8
+        w = Wd / 2 * (math.sin(math.pi * min(1.0, 0.15 + t * 0.95)) ** 0.6) if t < 0.95 else 0.02
+        zt = H + 0.25 * (t ** 3)
+        y = -L / 2 + L * t
+        secs.append([bm.verts.new(p) for p in ((-w, y, zt), (-w * 0.55, y, 0.15), (0, y, 0.0), (w * 0.55, y, 0.15), (w, y, zt))])
+    for A, B in zip(secs, secs[1:]):
+        for j in range(4):
+            bm.faces.new((A[j], A[j + 1], B[j + 1], B[j]))
+    bm.faces.new([secs[0][j] for j in range(5)])
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    bm_obj(name + '.hull', bm, c, [grimed(sklib.painted_metal(hull_col, 0.4, 0.4), name + '_paint', 0.0, 0.6, (0.3, 0.27, 0.2), 0.6)])
+    box(name + '.house', c, M['wall'], (0, -L * 0.28, H + 0.5), (1.1, 1.3, 1.0), 0.03)
+    box(name + '.tarp', c, M['tarp_blue'] if rng.random() < 0.5 else M['tarp_black'], (0, L * 0.05, H + 0.05), (1.3, 2.6, 0.1), 0.02)
+    return c
+
+
+def build_land():
+    # land with rolling relief (flat at the road, plant and pond plain), slightly below yard level
+    bm = bmesh.new()
+    grid_bm(bm, -4000, 4500, -4000, 6000, 220, 260, -0.03)
     for v in bm.verts:
         v.co.z = land_h(v.co.x, v.co.y) - 0.03
     lo = bm_obj('land', bm, COAST, [M['land']], uv=False)
     lo.data.shade_smooth()
-    # sea east of the NE-SW coastline + beach band
-    verts = [(coast_x(-4000), -4000, 0.25), (9000, -4000, 0.25), (9000, 6000, 0.25), (coast_x(6000), 6000, 0.25)]
+    # sea (z 0.1) east of the NE-SW coastline; sloping beach strip (waterline ~ d = +4 m)
+    verts = [(coast_x(-4000) - 30, -4000, 0.1), (9000, -4000, 0.1), (9000, 6000, 0.1), (coast_x(6000) - 30, 6000, 0.1)]
     me = bpy.data.meshes.new('sea')
     me.from_pydata(verts, [], [(0, 1, 2, 3)])
-    sea = sklib.new_obj('A-ENV-SEA', me, COAST)
+    sklib.new_obj('A-ENV-SEA', me, COAST)
     me.materials.append(M['sea'])
-    M['sea'].node_tree.nodes['Principled BSDF'].inputs['Specular IOR Level'].default_value = 0.28
-    bv = [(coast_x(-4000) - 40, -4000, 0.02), (coast_x(-4000) + 15, -4000, 0.3), (coast_x(6000) + 15, 6000, 0.3), (coast_x(6000) - 40, 6000, 0.02)]
-    me2 = bpy.data.meshes.new('beach')
-    me2.from_pydata(bv, [], [(0, 1, 2, 3)])
-    beach = sklib.new_obj('A-ENV-BEACH', me2, COAST)
-    sklib.mat_to(beach, M['sand'])
-    # surf line (thin white foam strip just off the beach)
-    fv = [(coast_x(-4000) + 4, -4000, 0.27), (coast_x(-4000) + 14, -4000, 0.27), (coast_x(6000) + 14, 6000, 0.27), (coast_x(6000) + 4, 6000, 0.27)]
-    me3 = bpy.data.meshes.new('surf')
-    me3.from_pydata(fv, [], [(0, 1, 2, 3)])
-    surf = sklib.new_obj('A-ENV-SURF', me3, COAST)
-    me3.materials.append(haze(sklib.flat('surf_foam', (0.85, 0.88, 0.88), rough=0.6, var=0.2, scale=0.05).copy()))
+    strip('A-ENV-BEACH', COAST, M['beach'], -72.0, 15.0, 0.30, 0.07)
     # hills north + west (displaced grid)
     for name, (x0, x1, y0, y1, hmax) in {'hills_n': (-4000, 2600, 1600, 5600, 380), 'hills_w': (-4000, -1200, -3000, 1800, 260)}.items():
         nx, ny = 90, 60
         bm = bmesh.new()
         grid_bm(bm, x0, x1, y0, y1, nx, ny)
-        from mathutils import noise
         for v in bm.verts:
             x, y = v.co.x, v.co.y
-            if name == 'hills_n':
-                edge = min(1.0, max(0.0, (y - y0) / 900.0))
-            else:
-                edge = min(1.0, max(0.0, (x1 - x) / 700.0))
-            h = noise.fractal(Vector((x / 1400.0, y / 1400.0, 0.3)), 0.6, 2.1, 5) * 0.5 + 0.55
-            h += 0.5 * abs(noise.noise(Vector((x / 700.0, y / 700.0, 1.7))))
+            edge = min(1.0, max(0.0, (y - y0) / 900.0)) if name == 'hills_n' else min(1.0, max(0.0, (x1 - x) / 700.0))
+            h = mnoise.fractal(Vector((x / 1400.0, y / 1400.0, 0.3)), 0.6, 2.1, 5) * 0.5 + 0.55
+            h += 0.5 * abs(mnoise.noise(Vector((x / 700.0, y / 700.0, 1.7))))
             v.co.z = max(0.0, h) * hmax * edge - 2.0
         ob = bm_obj(name, bm, COAST, [M['hill']], uv=False)
         ob.data.shade_smooth()
-    # pond belt: grid of rectangular ponds with earthen bunds (north of the road, west of the coast)
-    pond = C('A-POND', False)
-    pond2 = C('A-POND-B', False)
-    for cc, wm in ((pond, M['pond']), (pond2, M['pond2'])):
+    # pond variants (4 water colours + drained), 60 x 40 m water, 2.5-4.7 m earthen bunds
+    PV = []
+    for i, wm in enumerate(PONDW + [M['pond_mud']]):
+        cc = C('A-POND-%d' % i, False)
         bm = bmesh.new()
         grid_bm(bm, -30.0, 30.0, -20.0, 20.0)
-        w = bm_obj(cc.name + '.water', bm, cc, [wm], uv=False)
-        w.location.z = 0.12
+        w = bm_obj(cc.name + '.water', bm, cc, [wm], uv=(i == 4))
+        w.location.z = 0.12 if i < 4 else -0.15
         bmb = bmesh.new()
         for (xa, xb, ya, yb) in ((-33.2, 33.2, -23.2, -18.5), (-33.2, 33.2, 18.5, 23.2), (-33.2, -28.5, -18.5, 18.5), (28.5, 33.2, -18.5, 18.5)):
             bbox_bm(bmb, xa, xb, ya, yb, -0.05, 0.9)
-        b = bm_obj(cc.name + '.bund', bmb, cc, [M['bund']], 0.6, smooth_angle=60)
+        bm_obj(cc.name + '.bund', bmb, cc, [M['bund']], 0.6, smooth_angle=60)
+        PV.append(cc)
+    # pond blocks: each farm block has its own pond size and orientation; tracks/canals between blocks
     rng = random.Random(9)
     k = 0
-    for i in range(26):
-        for j in range(28):
-            x = 330 + i * 66.5
-            y = -15 + j * 46.5
-            if x + 40 > coast_x(y) - 90 or x - 35 < coast_x(y) - 740:
+    for j in range(7):
+        for i in range(3):
+            if rng.random() < 0.12:
                 continue
-            if rng.random() < 0.08:
+            cy = 45.0 + j * 235.0 + rng.uniform(-25, 25)
+            cx = coast_x(cy) - (255.0 + i * 235.0) / 0.894 + rng.uniform(-20, 20)
+            a = rng.uniform(-0.18, 0.18)
+            sx, sy = rng.uniform(0.62, 1.05), rng.uniform(0.7, 1.15)
+            px, py = 66.4 * sx, 46.4 * sy
+            nx, ny = max(1, int(200 / px)), max(1, int(200 / py))
+            ca, sa = math.cos(a), math.sin(a)
+            Rb = max(nx * px, ny * py) * 0.62
+            if cy - Rb < ROAD_Y + 25.0:                    # keep clear of the road: slide the block north
+                cy = ROAD_Y + 25.0 + Rb
+                cx = coast_x(cy) - (255.0 + i * 235.0) / 0.894
+            if cx - Rb < 90.0 and cy - Rb < 70.0:          # and of the plant yard: slide it east
+                cx = 90.0 + Rb
+            if any(math.hypot(cx - q[0], cy - q[1]) < Rb + max(q[2], q[3]) * 1.24 for q in POND_BLOCKS):
                 continue
-            sklib.instance(pond if rng.random() < 0.7 else pond2, (x, y, 0), 0.0, 'pond_%d' % k, COAST)
-            k += 1
+            POND_BLOCKS.append((cx, cy, nx * px / 2, ny * py / 2, a))
+            for u in range(nx):
+                for v in range(ny):
+                    if rng.random() < 0.07:
+                        continue
+                    lx, ly = (u - (nx - 1) / 2) * px, (v - (ny - 1) / 2) * py
+                    e = sklib.instance(PV[4] if rng.random() < 0.08 else PV[rng.randrange(4)],
+                                       (cx + lx * ca - ly * sa, cy + lx * sa + ly * ca, 0), a, 'pond_%d' % k, COAST)
+                    e.scale = (sx, sy, 1.0)
+                    k += 1
     print('ponds', k)
+    # casuarina shelter belt behind the beach, fishing boats drawn up on the sand and out at sea
+    rng = random.Random(14)
+    n = 0
+    y = -1800.0
+    while y < 2600:
+        for row in range(5):
+            d = -78.0 - row * 9.0 + rng.uniform(-3, 3)
+            if rng.random() < 0.12:
+                continue
+            yy = y + rng.uniform(-3, 3)
+            sklib.instance(CASUA[rng.randrange(3)], (coast_x(yy) + d / 0.894, yy, 0.0), rng.uniform(0, 6.28), 'casua_%d' % n, COAST,
+                           rng.uniform(0.8, 1.2))
+            n += 1
+        y += rng.uniform(6.0, 9.0)
+    print('casuarinas', n)
+    boats = [boat_coll('A-BOAT-%d' % i, c, i) for i, c in enumerate([(0.05, 0.20, 0.50), (0.55, 0.06, 0.04), (0.75, 0.75, 0.72),
+                                                                       (0.06, 0.35, 0.30)])]
+    for i in range(40):
+        yy = rng.uniform(-1500, 1500)
+        d = rng.uniform(-48, -22)
+        e = sklib.instance(boats[i % 4], (coast_x(yy) + d / 0.894, yy, 0.30 - (d + 72.0) / 87.0 * 0.23), math.atan2(-0.5, 1.0) + math.pi / 2 + rng.uniform(-0.3, 0.3),
+                           'beach_boat_%d' % i, COAST)
+        e.rotation_euler.y = rng.uniform(-0.1, 0.1)
+    wake = decal_mat('wake_foam', (0.85, 0.87, 0.87), 0.9, 0.6, 0.35, 0.6, stretch=(1, 0.3, 1), rough=0.6)
+    for i, (yy, d, hd) in enumerate([(-300, 260, 0.4), (-60, 520, 2.6), (240, 380, 1.2), (-520, 820, -0.6), (90, 1150, 3.0),
+                                     (420, 700, 0.1), (-150, 1500, 1.9)]):
+        x = coast_x(yy) + d / 0.894
+        sklib.instance(boats[i % 4], (x, yy, -0.3), hd, 'sea_boat_%d' % i, COAST)
+        dv = Vector((-math.sin(hd), math.cos(hd), 0))      # boats face -Y locally; wake trails behind (+Y local)
+        decal('sea_wake_%d' % i, COAST, wake, (x + dv.x * 22, yy + dv.y * 22, 0.12), (5.0, 40.0), hd)
 
 
 build_land()
@@ -1598,21 +2105,21 @@ def build_villages():
     cols = [(0.86, 0.84, 0.78), (0.82, 0.74, 0.52), (0.78, 0.62, 0.62), (0.62, 0.72, 0.78), (0.70, 0.78, 0.62)]
     houses = [house_coll('A-HOUSE-%d' % i, cols[i % 5], 'tile' if i % 3 == 0 else 'flat', 50 + i) for i in range(8)]
     rng = random.Random(61)
-    centres = [(-380, 260), (300, 470), (-220, -520), (650, -420), (-900, 700), (120, -900), (-1300, -200), (800, -1100), (-600, 1300), (420, 1500)]
+    centres = [(-380, 260), (300, 470), (-220, -520), (420, -380), (-900, 700), (120, -900), (-1300, -200), (-60, -1350), (-600, 1300), (420, 1500)]
     n = 0
     for cx, cy in centres:
         ang = rng.uniform(0, 1.57)
         for k in range(rng.randint(25, 45)):
             x = cx + rng.gauss(0, 55)
             y = cy + rng.gauss(0, 55)
-            if abs(y - ROAD_Y) < 14 or x > coast_x(y) - 150:
+            if abs(y - ROAD_Y) < 14 or x > coast_x(y) - 150 or in_ponds(x, y, 12.0):
                 continue
             e = sklib.instance(houses[rng.randrange(8)], (x, y, land_h(x, y) - 0.1), ang + rng.choice((0, 1.5708)) + rng.uniform(-0.08, 0.08),
                                'house_%d' % n, V)
             n += 1
         for k in range(30):     # village palms / mango trees
             x, y = cx + rng.gauss(0, 80), cy + rng.gauss(0, 80)
-            if abs(y - ROAD_Y) < 9 or x > coast_x(y) - 120:
+            if abs(y - ROAD_Y) < 9 or x > coast_x(y) - 140 or in_ponds(x, y):
                 continue
             tree_at((PALMS + TREES_LO)[rng.randrange(6)], x, y, rng.uniform(0, 6.28), 'vtree_%d_%d' % (n, k), V, rng.uniform(0.8, 1.3), rng, 0.06)
     print('houses', n)
@@ -1660,9 +2167,9 @@ def build_road():
             if rng.random() < 0.65:
                 off = rng.uniform(7.0, 16.0)
                 y = ROAD_Y + side * off
-                if -36 < x < 36 and y > -48:
+                if -36 < x < 110 and y > -80:     # clear of the yard and of the camera climb
                     continue
-                if x > coast_x(y) - 100:
+                if x > coast_x(y) - 140 or in_ponds(x, y):
                     continue
                 kind = PALMS if rng.random() < 0.35 else TREES_HI
                 e = tree_at(kind[rng.randrange(3)], x + rng.uniform(-3, 3), y, rng.uniform(0, 6.28), 'rtree_%d' % k, T,
@@ -1726,37 +2233,61 @@ def build_road():
     box('stall_bench', st, M['wood'], (0, 0.7, 0.25), (1.6, 0.35, 0.5), 0.01)
     for i, (xx, side, rz) in enumerate([(52.0, 1, 0.0), (118.0, -1, math.pi), (170.0, 1, 0.05), (236.0, -1, math.pi + 0.08)]):
         sklib.instance(st, (xx, ROAD_Y + side * 6.4, 0), rz, 'stall_%d' % i, T)
-    # far scatter: trees and palms on the land (outside ponds/sea/road/yard), more low-poly further out
+    # far vegetation: orchards in rows (mango / coconut), natural clumps, singles along field edges
     rng3 = random.Random(77)
+    FT = C('FAR_TREES')
     nfar = 0
-    for i in range(15000):
-        x = rng3.uniform(-2500, 2200)
-        y = rng3.uniform(-2500, 2600)
-        if x > coast_x(y) - 80:
+
+    def ok(x, y):
+        if x > coast_x(y) - 140 or (-45 < x < 45 and -55 < y < 45) or abs(y - ROAD_Y) < 8:
+            return False
+        if min(math.hypot(x - a_, y - b_) for a_, b_ in ((17, -30), (40, -62), (70, -78), (95, -90))) < 60:   # no trees under the low climb
+            return False
+        return not in_ponds(x, y)
+
+    for g in range(330):
+        cx, cy = rng3.uniform(-1700, coast_x(0) - 150), rng3.uniform(-1700, 2300)
+        if not ok(cx, cy):
             continue
-        if -40 < x < 40 and -50 < y < 40:
-            continue
-        if abs(y - ROAD_Y) < 7:
-            continue
-        inpond = (coast_x(y) - 760 < x and -40 < y < 1400)
-        if inpond and rng3.random() < 0.85:
-            continue
-        # clustered villages/groves: keep trees where a low-frequency pattern is high
-        from mathutils import noise
-        if noise.noise(Vector((x / 300.0, y / 300.0, 0.5))) < -0.1 and rng3.random() < 0.8:
-            continue
-        d = math.hypot(x - 150, y + 80)
-        palm = rng3.random() < 0.45
-        if d < 350:
-            src = (PALMS if palm else TREES_HI)[rng3.randrange(3)]
-        else:
-            src = (PALMS[rng3.randrange(3)]) if (palm and d < 900) else TREES_LO[rng3.randrange(3)]
-        tree_at(src, x, y, rng3.uniform(0, 6.28), 'ftree_%d' % i, T, rng3.uniform(0.7, 1.4), rng3, 0.06 if src in PALMS else 0.03)
-        nfar += 1
+        kind = rng3.random()
+        R = rng3.uniform(25, 75)
+        near_path = min(math.hypot(cx - px_, cy - py_) for px_, py_ in ((40, -62), (95, -90), (140, -100), (190, -106), (260, -110))) < 280
+        if near_path:
+            kind = 0.5
+        if kind < 0.65:          # planted orchard: rows
+            sp = rng3.uniform(7.5, 10.5)
+            a = rng3.uniform(0, 3.14)
+            src = MANGO if kind < 0.35 else PALMS
+            n = int(R / sp)
+            for i in range(-n, n + 1):
+                for j in range(-n, n + 1):
+                    lx, ly = i * sp, j * sp
+                    if lx * lx + ly * ly > R * R * (0.8 + 0.4 * mnoise.noise(Vector((i * 0.3, j * 0.3, g)))) or rng3.random() < 0.08:
+                        continue
+                    x = cx + lx * math.cos(a) - ly * math.sin(a) + rng3.gauss(0, 0.5)
+                    y = cy + lx * math.sin(a) + ly * math.cos(a) + rng3.gauss(0, 0.5)
+                    if ok(x, y):
+                        tree_at(src[rng3.randrange(len(src))], x, y, rng3.uniform(0, 6.28), 'grove_%d' % nfar, FT, rng3.uniform(0.85, 1.15), rng3,
+                                0.05 if src is PALMS else 0.02)
+                        nfar += 1
+        else:                    # natural clump of mixed trees
+            for i in range(int(R * 0.9)):
+                x, y = cx + rng3.gauss(0, R / 2.2), cy + rng3.gauss(0, R / 2.2)
+                if ok(x, y):
+                    src = (TREES_LO + MANGO + PALMS)[rng3.randrange(10)]
+                    tree_at(src, x, y, rng3.uniform(0, 6.28), 'grove_%d' % nfar, FT, rng3.uniform(0.7, 1.3), rng3, 0.05)
+                    nfar += 1
+    for i in range(5000):        # singles and pairs along bunds/fields
+        x, y = rng3.uniform(-1700, coast_x(0)), rng3.uniform(-1700, 2300)
+        if ok(x, y) and mnoise.noise(Vector((x / 260.0, y / 260.0, 0.5))) > -0.25:
+            near_path = min(math.hypot(x - px_, y - py_) for px_, py_ in ((40, -62), (95, -90), (140, -100), (190, -106), (260, -110))) < 220
+            src = PALMS[rng3.randrange(4)] if near_path else (TREES_LO + PALMS + MANGO)[rng3.randrange(10)]
+            tree_at(src, x, y, rng3.uniform(0, 6.28), 'single_%d' % i, FT, rng3.uniform(0.7, 1.35), rng3, 0.05)
+            nfar += 1
     print('far trees', nfar)
     # yard trees along the walls
-    for i, (xx, yy) in enumerate([(-31.5, -43.5), (-31.5, -30.0), (31.5, -40.0), (-31.5, -14.0), (30.5, -18.0), (8.0, -43.5)]):
-        sway(tree_at((PALMS + TREES_HI)[i % 6], xx, yy, i * 1.3, 'ytree_%d' % i, T, 0.9 + 0.1 * (i % 3), rng, 0.04), rng)
+    for i, (xx, yy) in enumerate([(-31.5, -30.0), (-31.5, -14.0), (-20.0, -43.5)]):     # clear of the camera climb (SE corner)
+        sway(tree_at(TREES_HI[i % 3], xx, yy, i * 1.3, 'ytree_%d' % i, T, 0.9 + 0.1 * (i % 3), rng, 0.04), rng)
 
 
 build_road()
@@ -1805,7 +2336,7 @@ PANTS = sklib.linen_fabric((0.07, 0.07, 0.09), 0.1)
 HELM = sklib.plastic((0.04, 0.04, 0.05), 0.2, name='helmet_black')
 
 
-def two_wheeler(name, paint, shirt, scooter=False):
+def two_wheeler(name, paint, shirt, scooter=False, with_rider=True):
     c = C(name, False)
     bm = bmesh.new()
     wheel_small(bm, (0, 0.65, 0.29), 0.29, 0.09, 1)
@@ -1822,7 +2353,10 @@ def two_wheeler(name, paint, shirt, scooter=False):
     bbox_bm(bm, -0.13, 0.13, 0.05, 0.6, 0.76, 0.84, 3)          # seat
     bbox_bm(bm, -0.36, 0.36, -0.68, -0.64, 1.0, 1.03, 2)        # handlebar
     bbox_bm(bm, -0.08, 0.08, -0.78, -0.7, 0.88, 1.0, 4)         # headlamp
-    rider(bm, 0.25, 0.82, 5, 6, 7, 8)
+    if with_rider:
+        rider(bm, 0.25, 0.82, 5, 6, 7, 8)
+    else:   # parked: side stand lean handled by the instance tilt
+        bbox_bm(bm, -0.1, 0.1, 0.62, 0.72, 0.84, 0.9, 2)
     o = bm_obj(name + '.mesh', bm, c, [paint, M['tyre'], M['chassis'], M['rubber'], M['lamp'], shirt, SKIN, PANTS, HELM], 0.01)
     return c
 
@@ -1866,6 +2400,12 @@ def bus():
 BIKES = [two_wheeler('A-VEH-2W-a', M['bike_red'], SHIRTS[0]), two_wheeler('A-VEH-2W-b', M['bike_blue'], SHIRTS[1], True),
          two_wheeler('A-VEH-2W-c', M['bike_black'], SHIRTS[2])]
 AUTO = auto_rickshaw()
+# staff two-wheelers parked under the canopy east of the hero dock (on side stands)
+PARKED_2W = [two_wheeler('A-VEH-2W-park-%d' % i, (M['bike_red'], M['bike_blue'], M['bike_black'], M['bike_black'])[i], SHIRTS[0],
+                         i == 1, with_rider=False) for i in range(4)]
+for i, x in enumerate((16.2, 17.1, 18.0, 18.9, 22.4, 23.3)):
+    e = sklib.instance(PARKED_2W[i % 4], (x, -2.6, 0), 0.25 + 0.06 * (i % 3), 'parked_2w_%d' % i, YARD)
+    e.rotation_euler.y = -0.12
 BUS = bus()
 # left-hand traffic: eastbound (+X) keeps to the north lane (y > road centre), westbound to the south lane.
 # vehicle meshes face -Y; rot_z = +90 deg -> facing +X (east), -90 -> facing -X (west).
@@ -1907,11 +2447,48 @@ people.animate_cycle(fl_op, 'work', 1, 216, phase=0.1, amount=0.6)
 jack_w = people.make_person('P-YARD-6-jack', sex='male', age=0.5, skin_tone=0.75, body={'weight': 0.6}, outfit='tshirt_lungi',
                             pose='pull_rope', location=(7.05, -5.75, 0), rotation_z=90 * D2R, seed=44)
 people.animate_cycle(jack_w, 'pull', 1, 216, phase=0.35)
-for p in (sig, dock, guard, porter, fl_op, jack_w):
+carrier = people.make_person('P-YARD-7-carrier', sex='male', age=0.3, skin_tone=0.85, body={'weight': 0.35}, outfit='tshirt_shorts',
+                             pose='carry', location=(-3.9, -8.3, 0), rotation_z=95 * D2R, seed=52)
+people.animate_cycle(carrier, 'work', 1, 216, phase=0.55, amount=0.5)
+stacker = people.make_person('P-YARD-8-stacker', sex='male', age=0.4, skin_tone=0.7, body={'weight': 0.5}, outfit='cotton_shirt_lungi_towel',
+                             pose='crouch', location=(-5.75, -11.0, 0), rotation_z=170 * D2R, seed=63)
+people.animate_cycle(stacker, 'work', 1, 216, phase=0.85, amount=0.6)
+superv = people.make_person('P-YARD-9-supervisor', sex='male', age=0.55, skin_tone=0.5, body={'weight': 0.65}, outfit='formal_shirt_lanyard',
+                            pose='stand', location=(11.2, -11.2, 0), rotation_z=145 * D2R, seed=74)
+people.animate_cycle(superv, 'work', 1, 216, phase=0.25, amount=0.4)
+for p in (sig, dock, guard, porter, fl_op, jack_w, carrier, stacker, superv):
     for o in [p] + list(p.children_recursive):
         for c in list(o.users_collection):
             c.objects.unlink(o)
         PEOPLE.objects.link(o)
+
+
+# ======================================================================================================== per-shot visibility
+def hide_keys(obs, keys):
+    """keys: [(frame, hidden)] -> constant-interpolated hide_render/hide_viewport keys on every object."""
+    for o in obs:
+        for f, h in keys:
+            o.hide_render = o.hide_viewport = h
+            o.keyframe_insert('hide_render', frame=f)
+            o.keyframe_insert('hide_viewport', frame=f)
+        for fc in sklib._fcurves(o):
+            if fc.data_path in ('hide_render', 'hide_viewport'):
+                for kp in fc.keyframe_points:
+                    kp.interpolation = 'CONSTANT'
+
+
+# aerial-only content (far groves, villages) lives in one nested collection instance: off while the camera is in the yard
+AER = C('AERIAL', False)
+for cn in ('FAR_TREES', 'A-VILLAGES'):
+    cc = bpy.data.collections[cn]
+    S.collection.children.unlink(cc)
+    AER.children.link(cc)
+AER_I = sklib.instance(AER, (0, 0, 0), 0.0, 'AERIAL_INST', None)
+hide_keys([AER_I], [(1, True), (97, False)])
+# yard-only content off once the camera has climbed away: cargo, dock bay interior, people
+hide_keys(list(bpy.data.collections['CARGO'].all_objects), [(1, False), (62, True)])
+hide_keys([o for o in bpy.data.collections['A-PLANT-EXT'].objects if o.name.startswith(('bay_', 'leveller'))], [(1, False), (70, True)])
+hide_keys(list(PEOPLE.all_objects), [(1, False), (178, True)])
 
 
 # ======================================================================================================== camera
@@ -1926,24 +2503,42 @@ keys = [
     (76, (5.8, -13.4, 6.2), (0.2, -8.8, 1.9), None),
     (90, (8.5, -18.5, 6.2), (0.5, -5.5, 1.9), None),
     (120, (17.0, -30.0, 11.0), (0.0, -5.5, 1.8), 28.0),
-    (150, (46.0, -66.0, 28.0), (14.0, -6.0, 0.0), None),
-    (175, (100.0, -86.0, 72.0), (175.0, 60.0, 0.0), None),
-    (200, (192.0, -105.0, 185.0), (560.0, -45.0, 0.0), None),
+    (150, (40.0, -62.0, 30.0), (18.0, -2.0, 0.0), None),
+    (175, (95.0, -90.0, 85.0), (145.0, 48.0, 0.0), None),
+    (200, (190.0, -106.0, 190.0), (443.0, 40.0, 0.0), None),
     (216, (260.0, -110.0, 300.0), (260.0 + 300.0 / math.tan(35 * D2R), -110.0, 0.0), 24.0),   # BRIDGE_COAST
 ]
 sklib.camera_path(cam, keys)
+# art r4: yard/aerial +0.2 EV (the warm grade reads ~10 luma darker); f1 keeps BRIDGE_DOCK -0.3
+EXPO_KEYS = ((1, -0.3), (18, 0.6), (60, 0.35), (110, 0.35), (190, 0.3), (216, 0.2))   # f1 stays BRIDGE_DOCK -0.3; r5 brighter (mean >= 95)
 for f, v in ((1, 0.03), (100, 0.03), (130, 0.5)):
     cam.data.clip_start = v
     cam.data.keyframe_insert('clip_start', frame=f)
-for f, v in ((1, -0.3), (70, -0.3), (110, 0.0), (216, 0.0)):
+for f, v in EXPO_KEYS:
     S.view_settings.exposure = v
     S.view_settings.keyframe_insert('exposure', frame=f)
 
 # keep the final aerial clean: the yard/plant are behind the camera at f216; nothing else needed.
 sklib.finish('truck', 'ext')
 # finish() resets exposure to 0; the keyframes above still drive it (re-key to be explicit after finish)
-for f, v in ((1, -0.3), (70, -0.3), (110, 0.0), (216, 0.0)):
+for f, v in EXPO_KEYS:
     S.view_settings.exposure = v
     S.view_settings.keyframe_insert('exposure', frame=f)
+# art pass (issue #75): AgX Punchy + morning haze + grade (lift field green, gain sun gold); finish() reset the view/compositor
+# look.apply's world-volume fog absorbs the whole sky + sun in EEVEE (art r1: frames black, same as sea r1), so the morning
+# haze #e8d2b0 comes from the per-material distance haze (HAZE_COL in haze()) and only the view + grade come from look.
+look.view(S, 'AgX - Punchy')
+# art r5 (COLOR_SCRIPT §3 updated): complementary grade, cool teal-blue shadows vs warm key highlights (r4 gold lift read as a sepia wash)
+look.grade(S, lift='#2f6f8a', gain='#ffc98a', sat=1.14, contrast=2.0, bloom=0.15, vignette=0.10, lift_amt=0.012, gain_amt=0.06)   # r5b: 0.025 lift went teal over the whole frame; r6: lead raised the gain cap to 0.06 for the gold
+for f, v in EXPO_KEYS:
+    S.view_settings.exposure = v
+    S.view_settings.keyframe_insert('exposure', frame=f)
+# fast flight (dock -> 300 m aerial in 9 s): a 108 deg shutter keeps the yard and the coast readable
+S.render.motion_blur_shutter = 0.3
+for f, v in ((1, 0.3), (150, 0.3), (172, 0.15), (216, 0.15)):   # shorter shutter on the fast climb to the aerial
+    S.render.motion_blur_shutter = v
+    S.render.keyframe_insert('motion_blur_shutter', frame=f)
+S.eevee.taa_render_samples = 32      # 16 vs 64 samples measured identical on the blurred flight frames; 32 for margin
+S.eevee.shadow_resolution_scale = 0.5   # A/B at f90: no visible change, ~-30 % frame time on the shared GPU
 bpy.ops.wm.save_mainfile()
 print('TRUCK BUILD OK')
