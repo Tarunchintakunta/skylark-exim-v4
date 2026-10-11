@@ -10,8 +10,20 @@
   color: var(--steel);
 }
 .sec-dark {
-  background: var(--ink);
+  background: transparent; /* the Chroma field (navy + glows) shows through */
   color: var(--frost);
+}
+/* Zoi navy field (COLOR_SCRIPT §4): transparent over the Chroma glows; the light-palette tokens are remapped for dark
+   so every existing rule in these sections keeps working. */
+.sec-field {
+  --steel: #a9bcc2;
+  --lagoon: #7fd0c4;
+  --glaze: #2a3d4f;
+  background: transparent;
+  color: var(--frost);
+}
+.sec-field .eyebrow {
+  color: var(--ch-accent);
 }
 .sec-dark .eyebrow {
   color: var(--glaze);
@@ -532,7 +544,7 @@
 
 /* B2 Products */
 .products {
-  background: var(--ink);
+  background: transparent; /* Chroma navy field + glows */
 }
 .prod-intro {
   padding: clamp(96px, 14vh, 160px) var(--gutter) 0;

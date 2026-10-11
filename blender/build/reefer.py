@@ -16,15 +16,47 @@ import numpy as np  # noqa: E402
 from mathutils import Euler, Matrix, Vector  # noqa: E402
 
 import sklib  # noqa: E402
+import look  # noqa: E402
 
 D2R = math.pi / 180
+EXPOSURE = 0.9
+GRADE_CONTRAST, GRADE_LIFT, GRADE_GAIN = 2.0, 0.012, 0.015   # small: a 0.025 lift turned every frame teal
 F0, F1 = 1, 192
 V = 6.17                       # 12 kn in m/s
 SHIP_X, SHIP_Y192 = -58.0, 5.0  # ship midship (world) at f192; hull stays > 15 m outside the BRIDGE_SEA frame
 rng = random.Random(3)
 
 s = sklib.reset()
-sklib.sky_world(sun_elev_deg=52, sun_az_deg=135)
+# ART PASS (issue #75, COLOR_SCRIPT row 01 + BRIDGE_SEA): dusk. Sun elev 8, az 260, #ff8c4a; physical sky blended with the
+# dusk gradient zenith #1b2a4a -> horizon #e8825a. port.blend f1 must use the same world (dusk_world below).
+SUN_HEX, ZEN_HEX, HOR_HEX = '#ff8c4a', '#1b2a4a', '#e8825a'
+DUSK_MIX, DUSK_GAIN = 0.6, 1.0
+
+
+def dusk_world():
+    w, sun = sklib.sky_world(sun_elev_deg=8, sun_az_deg=260)
+    look.light(sun, SUN_HEX)
+    nt = w.node_tree
+    sky = next(n for n in nt.nodes if n.type == 'TEX_SKY')
+    bg = next(n for n in nt.nodes if n.type == 'BACKGROUND')
+    tc = sklib._n(nt, 'ShaderNodeTexCoord', -900, -300)
+    sep = sklib._n(nt, 'ShaderNodeSeparateXYZ', -700, -300)
+    sklib._l(nt, tc.outputs['Generated'], sep.inputs[0])
+    ramp = sklib._n(nt, 'ShaderNodeValToRGB', -500, -300)
+    sklib._l(nt, sklib._maprange(nt, sep.outputs['Z'], 0.0, 0.6, 0.0, 1.0, -600, -500), ramp.inputs['Fac'])
+    ramp.color_ramp.elements[0].color = (*look.hex_rgb(HOR_HEX), 1)
+    ramp.color_ramp.elements[1].color = (*look.hex_rgb(ZEN_HEX), 1)
+    ramp.color_ramp.interpolation = 'EASE'
+    gm = sklib._n(nt, 'ShaderNodeVectorMath', -250, -300, operation='SCALE')
+    sklib._l(nt, ramp.outputs['Color'], gm.inputs[0])
+    gm.inputs['Scale'].default_value = DUSK_GAIN
+    mixc = sklib._mix(nt, DUSK_MIX, sky.outputs[0], gm.outputs[0], 'MIX', -100, 0)
+    sklib._l(nt, mixc, bg.inputs[0])
+    return w, sun
+
+
+_, SUN = dusk_world()
+look.add_light(s, 'SK_FILL_SKY', 'SUN', '#3a5b8c', 0.6, (0, 0, 0), (35 * D2R, 0, 80 * D2R), shadow=True).data.angle = 20 * D2R
 
 
 def ship_y(f):
@@ -391,7 +423,7 @@ def imesh(name, bm, mats, bev=0.0, seg=2):
 
 
 ALU = sklib.aluminium(0.25)
-LINER = sklib.painted_metal((0.82, 0.83, 0.82), 0.25, 0.15, 0.35)
+LINER = sklib.painted_metal((0.60, 0.68, 0.76), 0.4, 0.35, 0.5)   # ART: cool blue-white + grime
 bm = bmesh.new()
 box(bm, ((XU + XD) / 2, 0, FZL - 0.03), (XD - XU, 2 * YI, 0.02), 1)
 n = int(2 * YI / 0.05)
@@ -430,12 +462,12 @@ for a, b in zip(rows[:-1], rows[1:]):
 ch = imesh('reefer_air_chute', bm, (sklib.plastic((0.82, 0.84, 0.85), 0.2, name='vinyl_chute'),))
 ch.data.shade_smooth()
 # LED strips + their lights (cool 6500 K)
-LED = sklib.flat('led_strip', (0.9, 0.95, 1.0), 0.3, **{'Emission Color': (0.85, 0.92, 1.0, 1), 'Emission Strength': 9.0})
+LED = sklib.flat('led_strip', (0.9, 0.95, 1.0), 0.3, **{'Emission Color': (*look.hex_rgb('#d9ecff'), 1), 'Emission Strength': 9.0})
 bm = bmesh.new()
 for sy in (-0.75, 0.75):
     box(bm, ((XU + XD) / 2 - 0.3, sy, CZL - 0.012), (XD - XU - 1.2, 0.05, 0.02))
 imesh('reefer_led_strips', bm, (LED,))
-K65 = sklib.kelvin_rgb(6500)
+K65 = look.hex_rgb('#d9ecff')   # ART: COLOR_SCRIPT 6500 K LED
 for sy in (-0.75, 0.75):
     for x in (-2.8, 2.8):
         ld = bpy.data.lights.new('reefer_led', 'AREA')
@@ -449,7 +481,7 @@ mist = imesh('reefer_cold_mist', bm, ())
 mm, nt = sklib._new_mat('cold_mist')
 out = sklib._n(nt, 'ShaderNodeOutputMaterial', 600, 0)
 pv = sklib._n(nt, 'ShaderNodeVolumePrincipled', 300, 0)
-pv.inputs['Color'].default_value = (0.86, 0.92, 1.0, 1)
+pv.inputs['Color'].default_value = (*look.hex_rgb('#cfe6f2'), 1)
 tc = sklib._n(nt, 'ShaderNodeTexCoord', -600, 0)
 nz = sklib._noise(nt, tc.outputs['Object'], 0.9, 3.0, 0.55, -400, 0)
 den = sklib._maprange(nt, nz.outputs['Fac'], 0.35, 0.75, 0.004, 0.035, -200, 0)
@@ -477,6 +509,18 @@ for (cx, cy) in ((-0.35, -0.25), (0.0, -0.25), (0.0, 0.25)):
 HX, HY = HPX + 0.35, HPY + 0.25
 hero = sklib.hero_carton(0.0, 'A-HERO-CARTON', coll=INT, interior=False, loc=(HX, HY, Z5), rot_z=math.pi / 2 + 0.015)
 hero.parent = HERO_C
+# ART: ice rim from the bulkhead (behind the load, toward the doors) + cool fill from the door side; marigold tape
+for nm, hx, en, loc, rot, sz in (('reefer_rim_ice', '#9fd8ff', 60.0, (XU + 0.4, 0, CZL - 0.25), (0, -80 * D2R, 0), 1.6),
+                                 ('reefer_fill', '#3a5b8c', 25.0, (XD - 0.3, 0, CZL - 0.4), (0, 70 * D2R, 0), 1.6)):
+    ld = bpy.data.lights.new(nm, 'AREA')
+    ld.shape, ld.size, ld.size_y, ld.energy, ld.color = 'RECTANGLE', 0.6, sz, en, look.hex_rgb(hx)
+    ld.use_shadow = nm == 'reefer_rim_ice'
+    sklib.new_obj(nm, ld, INT, HERO_C, loc, rot)
+for m in bpy.data.materials:
+    if m.name.startswith('carton_tape'):
+        for n in m.node_tree.nodes:
+            if n.type == 'VECT_MATH' and n.operation == 'SCALE' and not n.inputs[0].is_linked:
+                n.inputs[0].default_value = look.hex_rgb('#e2a03a')
 
 # BRIDGE_FROST: frosted white poly sheet on the hero lid + soft 6500 K area light 1 m above
 BF = sklib.collection('BRIDGE_FROST', SHIP)
@@ -494,7 +538,7 @@ sklib._l(nt, pb.outputs[0], out.inputs['Surface'])
 tc = sklib._n(nt, 'ShaderNodeTexCoord', -1100, 0)
 geo = sklib._n(nt, 'ShaderNodeNewGeometry', -300, -600)
 nzc = sklib._noise(nt, tc.outputs['Object'], 45.0, 6.0, 0.65, -900, 400)          # frost coverage
-cov = sklib._maprange(nt, nzc.outputs['Fac'], 0.44, 0.56, 0.0, 1.0, -650, 400)
+cov = sklib._maprange(nt, nzc.outputs['Fac'], 0.40, 0.60, 0.0, 1.0, -650, 400)
 facets = []
 for i, sc in enumerate((380.0, 1500.0)):                                             # plates + fine needles
     vo = sklib._n(nt, 'ShaderNodeTexVoronoi', -900, -100 - 300 * i)
@@ -520,8 +564,8 @@ sklib._l(nt, geo.outputs['Normal'], nn.inputs[1])
 nrm = sklib._n(nt, 'ShaderNodeVectorMath', 200, -400, operation='NORMALIZE')
 sklib._l(nt, nn.outputs[0], nrm.inputs[0])
 sklib._l(nt, nrm.outputs[0], pb.inputs['Normal'])
-grain = sklib._maprange(nt, facets[1].outputs['Distance'], 0.0, 0.5, 1.0, 0.45, -400, 650)
-col = sklib._mix(nt, cov, (0.07, 0.085, 0.10), (0.78, 0.82, 0.86), 'MIX', -150, 450)
+grain = sklib._maprange(nt, facets[1].outputs['Distance'], 0.0, 0.5, 1.0, 0.25, -400, 650)
+col = sklib._mix(nt, cov, (0.035, 0.07, 0.11), (0.62, 0.78, 0.88), 'MIX', -150, 450)   # ART: frost cyan #cfe6f2
 cm = sklib._n(nt, 'ShaderNodeVectorMath', 100, 450, operation='SCALE')
 sklib._l(nt, col, cm.inputs[0])
 sklib._l(nt, grain, cm.inputs['Scale'])
@@ -536,8 +580,11 @@ frost.location = (0, 0, TOPZ)
 frost.rotation_euler.z = 0.03
 frost.data.shade_smooth()
 fl = bpy.data.lights.new('BRIDGE_FROST.light', 'AREA')
-fl.shape, fl.size, fl.energy, fl.color = 'SQUARE', 0.35, 3.0, K65
+fl.shape, fl.size, fl.energy, fl.color = 'SQUARE', 0.35, 3.0, look.hex_rgb('#e6f2ff')   # BRIDGE_FROST 6500 K softbox
 sklib.new_obj('BRIDGE_FROST.light', fl, BF, hero, (0, 0, TOPZ + 1.0))
+wk = bpy.data.lights.new('BRIDGE_FROST.warm', 'AREA')                                           # faint warm kick (table side)
+wk.shape, wk.size, wk.energy, wk.color = 'SQUARE', 0.25, 0.6, look.hex_rgb('#ffb46b')
+sklib.new_obj('BRIDGE_FROST.warm', wk, BF, hero, (-0.6, 0, TOPZ + 0.35), (0, -60 * D2R, 0))
 bpy.context.view_layer.update()
 
 
@@ -548,15 +595,21 @@ def hero_S():
 
 
 # ------------------------------------------------------------------------------------------------ sea, far sea, wake foam
-sea = sklib.ocean(size=20000, seed=41, time=0.0)    # 6x6 displaced 100 m tiles (+-300 m) + flat far plane, same water
+HAZE_D, HAZE_HEX, HAZE_E = 0.0008, '#c98a7a', 0.35
+GLINT_P, GLINT_E = 4.0, 60.0
+SEA_DEEP, SEA_SHALLOW = (0.010, 0.036, 0.095), (0.040, 0.140, 0.220)   # ART PASS: deep dusk blue (port f1 must match)
+sea = sklib.ocean(size=20000, seed=41, time=0.0, deep=SEA_DEEP, shallow=SEA_SHALLOW)    # 6x6 displaced 100 m tiles (+-300 m) + flat far plane, same water
 om = sea.modifiers['Ocean']
-for f in (F0 - 2, F1):
-    om.time = (F1 - f) / 24.0                        # time = 0 at f192 (hard min 0 -> runs down to 0, constant after)
+SEA_T0 = 8.0   # ocean time at the BRIDGE_SEA frame f192. The Ocean modifier clamps time >= 0, so a forward-running sea
+#                ending at the bridge needs an offset: time runs 0.04 -> 8.0 here; port.blend f1 must use time = SEA_T0
+#                (port.py: sklib.ocean(..., time=SEA_T0 - 1/24, animate=True)).
+for f in (F0, F1):
+    om.time = SEA_T0 + (f - F1) / 24.0
     sea.keyframe_insert('modifiers["Ocean"].time', frame=f)
 for fc in sklib._fcurves(sea):
     for k in fc.keyframe_points:
         k.interpolation = 'LINEAR'
-om.time = 0.0
+    fc.extrapolation = 'LINEAR'
 
 # wake mask (ship space, painted with numpy, packed)
 WX0, WX1, WY0, WY1 = -100.0, 100.0, -420.0, 140.0
@@ -643,6 +696,34 @@ sklib._l(nt, vmx.outputs[1], nrz.inputs[0])
 for n in nt.nodes:
     if n.type in ('BSDF_GLOSSY', 'FRESNEL'):
         sklib._l(nt, nrz.outputs[0], n.inputs['Normal'])
+# ART: sea haze (COLOR_SCRIPT 0.0008/m) toward the dusk horizon colour, by view distance (no world volume, see end)
+hz = sklib._math(nt, 'EXPONENT', sklib._math(nt, 'MULTIPLY', cdn.outputs['View Distance'], -HAZE_D, x=-1300, y=-2500), x=-1100, y=-2500)
+hz = sklib._math(nt, 'SUBTRACT', 1.0, hz, x=-900, y=-2500)
+hem = sklib._n(nt, 'ShaderNodeEmission', 600, -900)
+hem.inputs['Color'].default_value = (*look.hex_rgb(HAZE_HEX), 1)
+hem.inputs['Strength'].default_value = HAZE_E
+hmx = sklib._n(nt, 'ShaderNodeMixShader', 1100, -300)
+last = mo.inputs['Surface'].links[0].from_socket
+# ART: warm sun glints, wave faces turned to the low dusk sun (az 260, el 8) catch #ff8c4a light: pow(max(N.L, 0), GLINT_P)
+el_, az_ = 8 * D2R, 260 * D2R
+dp = sklib._n(nt, 'ShaderNodeVectorMath', -300, -2700, operation='DOT_PRODUCT')
+sklib._l(nt, nrz.outputs[0], dp.inputs[0])
+dp.inputs[1].default_value = (math.sin(az_) * math.cos(el_), math.cos(az_) * math.cos(el_), math.sin(el_))
+gp = sklib._math(nt, 'POWER', sklib._math(nt, 'MAXIMUM', dp.outputs['Value'], 0.0, x=-100, y=-2700), GLINT_P, x=100, y=-2700)
+gem = sklib._n(nt, 'ShaderNodeEmission', 300, -2700)
+gem.inputs['Color'].default_value = (*look.hex_rgb(SUN_HEX), 1)
+spk = sklib._noise(nt, gtc.outputs['Object'], 1.6, 8.0, 0.7, -300, -3000)       # glitter: break the glint into sparkles
+spk = sklib._maprange(nt, spk.outputs['Fac'], 0.52, 0.72, 0.0, 1.0, -100, -3000)
+sklib._l(nt, sklib._math(nt, 'MULTIPLY', sklib._math(nt, 'MULTIPLY', gp, spk, x=100, y=-2950), GLINT_E, x=200, y=-2850),
+         gem.inputs['Strength'])
+gad = sklib._n(nt, 'ShaderNodeAddShader', 900, -600)
+sklib._l(nt, last, gad.inputs[0])
+sklib._l(nt, gem.outputs[0], gad.inputs[1])
+last = gad.outputs[0]
+sklib._l(nt, hz, hmx.inputs[0])
+sklib._l(nt, last, hmx.inputs[1])
+sklib._l(nt, hem.outputs[0], hmx.inputs[2])
+sklib._l(nt, hmx.outputs[0], mo.inputs['Surface'])
 
 
 # bow spray particles (both sides, gravity, motion-blurred droplets)
@@ -719,7 +800,8 @@ H = hero_S()
 # (frame, ship-space pos, pitch deg (0 = down, 90 = level), yaw deg (0 = +Y, + = to port), lens, focus, fstop)
 KEYS = [
     (1, H + Vector((0, 0, 0.12)), 0.0, 0.0, 100.0, 0.12, 2.8),
-    (14, H + Vector((0, 0, 0.13)), 0.0, 0.0, 100.0, 0.17, 4.0),
+    (10, H + Vector((0, 0, 0.30)), 0.0, 0.0, 85.0, 0.30, 4.0),
+    (22, H + Vector((0, -0.75, 0.75)), 45.0, 0.0, 45.0, 1.06, 4.0),
     (45, Vector((H.x + 0.06, H.y - 2.05, H.z + 0.68)), 71.0, 0.0, 32.0, 2.2, 2.8),
     (75, Vector((OX - 0.10, GAP_Y1 - 0.15, OZ + FZL + 1.95)), 80.0, 0.0, 26.0, 4.6, 4.0),
     (95, Vector((OX - 0.05, GAP_C + 0.1, OZ + FZL + 2.15)), 82.0, 0.0, 24.0, 1.7, 4.0),
@@ -772,13 +854,13 @@ for f in range(F0 - 1, F1 + 2):
     pW = Vector([chan(i, fc_, True) for i in range(3)])
     w = 1.0 - min(1, max(0, (fc_ - 100) / 30.0))
     w = w * w * (3 - 2 * w)
-    Mm = motion_m(fc_, w)
+    Mm = motion_m(f, w)               # ship motion at the true frame (clamping it smeared f1 under motion blur)
     a = min(1, max(0, (fc_ - 105) / 20.0))
     a = a * a * (3 - 2 * a)
     pitch = pchip(kf, [k[2] for k in KEYS], fc_) * D2R
     yaw = pchip(kf, [k[3] for k in KEYS], fc_) * D2R
     R = Euler((pitch, 0, yaw), 'XYZ').to_matrix().to_4x4()
-    Mw_S = root_m(fc_) @ Mm @ Matrix.Translation(pS) @ R
+    Mw_S = root_m(f) @ Mm @ Matrix.Translation(pS) @ R
     loc = Mw_S.to_translation().lerp(pW, a)
     rot = Mw_S.to_euler('XYZ', prev) if prev else Mw_S.to_euler('XYZ')
     prev = rot
@@ -786,7 +868,13 @@ for f in range(F0 - 1, F1 + 2):
     cam.keyframe_insert('location', frame=f)
     cam.keyframe_insert('rotation_euler', frame=f)
     cd.lens = pchip(kf, [k[4] for k in KEYS], fc_)
-    cd.dof.focus_distance = math.exp(pchip(kf, [math.log(k[5]) for k in KEYS], fc_))
+    fd = math.exp(pchip(kf, [math.log(k[5]) for k in KEYS], fc_))
+    if fc_ <= 22:                    # focus exactly on the frost/lid plane along the view axis (no soft white-out)
+        fd = (pS.z - H.z) / math.cos(pitch)
+    elif fc_ < 30:
+        u = (fc_ - 22) / 8.0
+        fd = fd * u + (1 - u) * (pS.z - H.z) / math.cos(pitch)
+    cd.dof.focus_distance = fd
     cd.dof.aperture_fstop = pchip(kf, [k[6] for k in KEYS], fc_)
     cd.clip_start = 0.01 if fc_ < 90 else 0.3
     cd.clip_end = 25000.0
@@ -808,10 +896,23 @@ for idb in (cam, cd):
 s.frame_set(F1)
 assert (cam.matrix_world.to_translation() - WEND).length < 1e-3, cam.matrix_world.to_translation()
 
+bg = [n for n in s.world.node_tree.nodes if n.type == 'BACKGROUND'][0]
+for f, v in ((F0, 0.06), (55, 0.06), (100, 0.3)):
+    bg.inputs['Strength'].default_value = v
+    bg.inputs['Strength'].keyframe_insert('default_value', frame=f)
+
 # ------------------------------------------------------------------------------------------------ render settings
 sklib.finish('reefer', 'ext')
+look.apply(s, 'reefer')            # ART: AgX Punchy, world fog, grade (lift #123a5a, gain #ff9a5c)
+look.grade(s, lift='#3a5b8c', gain='#ff9a5c', sat=1.10, contrast=GRADE_CONTRAST, bloom=0.15, vignette=0.10, lift_amt=GRADE_LIFT, gain_amt=GRADE_GAIN)
+# EEVEE treats a world volume as infinite: it extinguished the sun + sky (measured: f45 mean 96 -> 4). So no world fog
+# here: depth comes from the interior cold-mist volume (#cfe6f2) and the distance haze in the water shader (sea haze 0.0008).
+s.view_settings.exposure = EXPOSURE   # Punchy + grade read ~0.5 stop darker than the old frames; lead: never darker
+if 'SK_FOG' in s.world.node_tree.nodes:
+    s.world.node_tree.nodes.remove(s.world.node_tree.nodes['SK_FOG'])
 e = s.eevee
-e.volumetric_tile_size, e.volumetric_samples, e.volumetric_end = '16', 32, 30.0
+e.volumetric_tile_size, e.volumetric_samples = '16', 24
 e.use_volumetric_shadows = True
+e.taa_render_samples = 32       # 64 -> 32: interior 16 s -> 8 s/frame, noise checked on full-res stills
 s.frame_set(F0)
-sklib.finish('reefer', 'ext')
+bpy.ops.wm.save_as_mainfile(filepath=sklib.SRC + '/blender/reefer.blend', relative_remap=True, compress=True)

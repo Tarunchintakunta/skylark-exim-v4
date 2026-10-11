@@ -18,11 +18,12 @@ from mathutils import Euler, Matrix, Vector
 REPO = '/Users/tarunchintakunta/Desktop/2.0/skylark-exim-v4'
 sys.path.insert(0, REPO + '/assets-src/blender/lib')
 import sklib  # noqa: E402
+import look  # noqa: E402  (art pass #75: COLOR_SCRIPT row 00)
 from sklib import _n, _l, _math, _mix, _maprange, _noise  # noqa: E402
 sys.path.insert(0, REPO + '/assets-src/blender/build')
 import bridge_frost as bridge_frost_mod  # noqa: E402
 
-PRAWN_SCAN = REPO + '/assets-src/scans/green-tiger-prawn.glb'   # CC0 ffish.asia (docs/ASSETS.md A-PROD-PRAWN)
+PRAWN_SCAN = REPO + '/assets-src/models/prawn.glb'   # A-PROD-PRAWN: the CC0 ffish.asia green tiger prawn scan, cleaned (remeshed body + baked albedo) by products.py
 D2R = math.pi / 180
 TOP = 0.75                       # table top height
 CARTON_LOC = Vector((2.86, 1.58, 0.92))
@@ -113,18 +114,30 @@ def refractive(m, thick='SLAB'):
 
 
 def glass_mat():
-    m, nt, b = principled('glass_clear', (1, 1, 1), 0.02, **{'Transmission Weight': 1.0, 'IOR': 1.45})
-    return refractive(m, 'SLAB')
+    """Thin soda-lime glass, BLENDED (no screen-space refraction: the wine/water inside stays visible, nothing turns
+    black): glossy Principled whose alpha follows Fresnel, so the rims and silhouettes read and the body stays clear."""
+    m = bpy.data.materials.get('glass_clear')
+    if m:
+        return m
+    m, nt, b = principled('glass_clear', (0.97, 0.99, 0.98), 0.02, **{'IOR': 1.5})
+    lw = _n(nt, 'ShaderNodeLayerWeight', 0, -300)
+    lw.inputs['Blend'].default_value = 0.12
+    _l(nt, _maprange(nt, lw.outputs['Fresnel'], 0.0, 1.0, 0.07, 0.7, 250, -300), b.inputs['Alpha'])
+    m.surface_render_method = 'BLENDED'
+    for a_, v in (('use_transparent_shadow', True), ('show_transparent_back', False)):
+        if hasattr(m, a_):
+            setattr(m, a_, v)
+    return m
 
 
 def liquid_mat(name, color, ior=1.333):
     m, nt, b = principled(name, color, 0.02, **{'Transmission Weight': 1.0, 'IOR': ior})
-    return refractive(m, 'SPHERE')
+    return refractive(m, 'SPHERE' if 'wine' in name else 'SLAB')
 
 
 def ceramic():
-    m = sklib.pbr('ceramic_white', 'white_plaster_02', tint=(0.93, 0.92, 0.89), rough=(0.05, 0.16), nor=0.03,
-                  wear=0.03, wear_color=(0.7, 0.68, 0.64), contrast=0.08, var=0.02)
+    m = sklib.pbr('ceramic_stoneware', 'white_plaster_02', tint=(0.07, 0.062, 0.058), rough=(0.05, 0.16), nor=0.03,
+                  wear=0.05, wear_color=(0.30, 0.27, 0.25), contrast=0.3, var=0.08)   # art #75: charcoal stoneware glaze, not white/peach
     b = next(n for n in m.node_tree.nodes if n.type == 'BSDF_PRINCIPLED')
     b.inputs['Coat Weight'].default_value = 1.0
     b.inputs['Coat Roughness'].default_value = 0.02
@@ -157,15 +170,21 @@ def prawn_cooked(img):
     _l(nt, uv.outputs[0], ti.inputs[0])
     bw = _n(nt, 'ShaderNodeRGBToBW', -750, 300)
     _l(nt, ti.outputs['Color'], bw.inputs[0])
-    rp = _n(nt, 'ShaderNodeValToRGB', -550, 300)
+    tcp = _n(nt, 'ShaderNodeTexCoord', -1200, 600)
+    sp = _n(nt, 'ShaderNodeSeparateXYZ', -1000, 600)
+    _l(nt, tcp.outputs['Object'], sp.inputs[0])
+    belly = _maprange(nt, sp.outputs['Z'], 0.006, -0.009, 0.0, 1.0, -800, 650)          # pale underside
+    band = _math(nt, 'SINE', _math(nt, 'MULTIPLY', sp.outputs['X'], 520.0, x=-800, y=500), x=-650, y=500)
+    band = _maprange(nt, band, 0.55, 1.0, 0.0, 0.25, -500, 500)                         # paler segment joints
+    det = _maprange(nt, bw.outputs[0], 0.2, 0.8, -0.12, 0.12, -550, 300)                 # scan detail, toned down
+    fac = _math(nt, 'ADD', _math(nt, 'ADD', belly, band, x=-350, y=550), det, x=-200, y=450)
+    rp = _n(nt, 'ShaderNodeValToRGB', -50, 300)
     els = rp.color_ramp.elements
-    els[0].position, els[0].color = 0.08, (0.42, 0.06, 0.02, 1)
-    els[1].position, els[1].color = 0.62, (0.98, 0.62, 0.42, 1)
-    e = els.new(0.32)
-    e.color = (0.86, 0.26, 0.08, 1)
-    e = els.new(0.85)
-    e.color = (1.0, 0.86, 0.72, 1)
-    _l(nt, bw.outputs[0], rp.inputs[0])
+    els[0].position, els[0].color = 0.0, (0.62, 0.11, 0.03, 1)
+    els[1].position, els[1].color = 1.0, (0.96, 0.58, 0.36, 1)   # art #75: cooked orange, not candy pink
+    e = els.new(0.35)
+    e.color = (0.78, 0.26, 0.08, 1)
+    _l(nt, fac, rp.inputs[0])
     tc = _n(nt, 'ShaderNodeTexCoord', -1200, -200)
     sep = _n(nt, 'ShaderNodeSeparateXYZ', -1000, -200)
     _l(nt, tc.outputs['Object'], sep.inputs[0])
@@ -219,15 +238,15 @@ def tuna_mat():
     _l(nt, tc.outputs['Object'], wv.inputs['Vector'])
     my = _maprange(nt, wv.outputs['Fac'], 0.9, 1.0, 0.0, 0.14, -450, 350)
     nv = _noise(nt, tc.outputs['Object'], 60.0, 4.0, 0.6, -650, 200)
-    flesh = _mix(nt, _maprange(nt, nv.outputs['Fac'], 0.3, 0.7, 0, 1, -450, 200), (0.16, 0.006, 0.018), (0.27, 0.02, 0.035), 'MIX', -350, 300)
-    flesh = _mix(nt, my, flesh, (0.38, 0.12, 0.13), 'MIX', -250, 350)
+    flesh = _mix(nt, _maprange(nt, nv.outputs['Fac'], 0.3, 0.7, 0, 1, -450, 200), (0.085, 0.006, 0.012), (0.155, 0.014, 0.022), 'MIX', -350, 300)   # deep ruby
+    flesh = _mix(nt, my, flesh, (0.28, 0.09, 0.10), 'MIX', -250, 350)
     fl = _noise(nt, tc.outputs['Object'], 900.0, 2.0, 0.5, -650, 600)            # pepper/sesame flecks
     fk = _maprange(nt, fl.outputs['Fac'], 0.62, 0.68, 0.0, 1.0, -450, 600)
     seared = _mix(nt, fk, (0.17, 0.09, 0.05), (0.02, 0.015, 0.01), 'MIX', -250, 600)
     col = _mix(nt, crust, flesh, seared, 'MIX', 200, 300)
     _l(nt, col, b.inputs['Base Color'])
     _l(nt, _maprange(nt, crust, 0, 1, 0.22, 0.55, 200, 0), b.inputs['Roughness'])
-    _l(nt, _maprange(nt, crust, 0, 1, 0.22, 0.02, 200, -150), b.inputs['Subsurface Weight'])
+    _l(nt, _maprange(nt, crust, 0, 1, 0.12, 0.02, 200, -150), b.inputs['Subsurface Weight'])
     b.inputs['Subsurface Radius'].default_value = (1.0, 0.25, 0.2)
     b.inputs['Subsurface Scale'].default_value = 0.004
     b.inputs['Coat Weight'].default_value = 0.35
@@ -275,14 +294,20 @@ def frost_bridge_mat():
     return m
 
 
+def walnut():
+    """Art #75: walnut-dusk table/chairs (#3a1f14 dominant) instead of pale oak; same CC0 wood scan, recoloured."""
+    return sklib.pbr('walnut', 'kitchen_wood', tint=(0.14, 0.10, 0.042), contrast=1.1, wear=0.1, rough=(0.22, 0.5),
+                     ao_dist=0.1, var=0.12)
+
+
 def leaf_mat(name, col):
-    return food_mat(name, col, (0.2, 0.6, 0.1), rough=0.45, coat=0.25, sss=0.3, bump=0.15, scale=400, var=0.25)
+    return food_mat(name, col, (0.2, 0.6, 0.1), rough=0.5, coat=0.04, sss=0.3, bump=0.15, scale=400, var=0.25)
 
 
 # ----------------------------------------------------------------------------------------------------------- room
 def build_room():
     floor = sklib.pbr('floor_parquet', 'herringbone_parquet', scale=1.0, wear=0.12, rough=(0.3, 0.7), ao_dist=0.3)
-    wallm = sklib.pbr('wall_warm', 'white_plaster_02', tint=(0.86, 0.80, 0.72), wear=0.06, contrast=0.4, ao_dist=0.4)
+    wallm = sklib.pbr('wall_warm', 'white_plaster_02', tint=(0.46, 0.38, 0.31), wear=0.06, contrast=0.4, ao_dist=0.4)
     box('floor', (0.8, -0.575, -0.025), (8.4, 4.95, 0.05), floor, C_SET, 0)
     box('ceiling', (0.8, -0.575, 2.725), (8.4, 4.95, 0.05), wallm, C_SET, 0)
     box('wall_L', (-3.25, -0.05, 1.35), (0.1, 6.1, 2.7), wallm, C_SET, 0)
@@ -386,7 +411,7 @@ def city():
 
 # ---------------------------------------------------------------------------------------------- table & chairs
 def build_table():
-    oak = sklib.oak_table(0.1)
+    oak = walnut()
     box('table_top', (0, 0, TOP - 0.02), (1.4, 0.85, 0.04), oak, C_TABLE, 0.006, 3)
     box('table_apron_N', (0, 0.36, TOP - 0.065), (1.1, 0.025, 0.05), oak, C_TABLE, 0.003)
     box('table_apron_S', (0, -0.36, TOP - 0.065), (1.1, 0.025, 0.05), oak, C_TABLE, 0.003)
@@ -399,7 +424,7 @@ def build_table():
 
 
 def chair(name, x, rot, seat_z):
-    oak = sklib.oak_table(0.15)
+    oak = walnut()
     root = sklib.new_obj(name, None, C_TABLE)
     parts = [box(name + '.seat', (0, 0, seat_z - 0.018), (0.44, 0.44, 0.036), oak, C_TABLE, 0.008, 3)]
     for sx in (-1, 1):
@@ -460,32 +485,77 @@ def tumbler(name, loc, fill=0.65):
 
 
 def cutlery(name, kind):
-    """Fork / knife along local +X (tip at +X, handle end at x=0), 0.2 m long, stainless."""
+    """Fork / knife along local +X (tip at +X, handle end at x=0), ~0.2 m, polished stainless. Every station is a
+    rounded (elliptic) section, so highlights roll across the handle like real flatware; fork tines are tapered
+    rounded rods, the knife blade thins to an edge."""
     bm = bmesh.new()
-    L = 0.2
+    seg = 12
     if kind == 'fork':
-        prof = [(0.0, 0.010), (0.06, 0.012), (0.105, 0.0065), (0.125, 0.004), (0.14, 0.009), (0.152, 0.0115)]
+        prof = [(0.0, 0.0085, 0.0034), (0.012, 0.0105, 0.0036), (0.06, 0.0115, 0.0032), (0.095, 0.0068, 0.0028),
+                (0.118, 0.0042, 0.0034), (0.13, 0.0058, 0.0026), (0.145, 0.0105, 0.0022), (0.153, 0.0118, 0.002)]
     else:
-        prof = [(0.0, 0.010), (0.09, 0.0105), (0.105, 0.007), (0.112, 0.008), (0.2, 0.009), (0.21, 0.0)]
+        prof = [(0.0, 0.0085, 0.0062), (0.012, 0.0098, 0.0068), (0.085, 0.0095, 0.0058), (0.1, 0.0062, 0.0042),
+                (0.108, 0.0072, 0.0016), (0.15, 0.0098, 0.0012), (0.19, 0.0088, 0.001), (0.208, 0.004, 0.0008)]
+    zc = lambda x: (0.006 * math.sin(min(x / 0.155, 1.0) * math.pi) - 0.0035 * min(max(x - 0.13, 0) / 0.04, 1)) \
+        if kind == 'fork' else 0.0025 * math.sin(min(x / 0.1, 1.0) * math.pi)
     rows = []
-    for x, w in prof:
-        z = 0.004 * math.sin(min(x / 0.15, 1.0) * math.pi) if kind == 'fork' else 0.0
-        th = 0.0016 if kind == 'knife' and x > 0.11 else 0.0028
-        rows.append([bm.verts.new((x, -w, z - th / 2)), bm.verts.new((x, w, z - th / 2)),
-                     bm.verts.new((x, w, z + th / 2)), bm.verts.new((x, -w, z + th / 2))])
-    for a, b in zip(rows, rows[1:]):
-        for k in range(4):
-            bm.faces.new((a[k], a[(k + 1) % 4], b[(k + 1) % 4], b[k]))
+    for x, w, th in prof:
+        z = zc(x)
+        ring = []
+        for k in range(seg):
+            a = 2 * math.pi * k / seg
+            ca, sa = math.cos(a), math.sin(a)
+            yy = w * math.copysign(abs(ca) ** 0.6, ca)              # superellipse: flat top, rounded sides
+            zz = th / 2 * math.copysign(abs(sa) ** 0.8, sa)
+            if kind == 'knife' and x > 0.105:
+                zz *= (1 - 0.85 * max(0.0, -ca))                      # blade thins to the cutting edge (-y side)
+            ring.append(bm.verts.new((x, yy, z + zz)))
+        rows.append(ring)
+    for r0, r1 in zip(rows, rows[1:]):
+        for k in range(seg):
+            bm.faces.new((r0[k], r0[(k + 1) % seg], r1[(k + 1) % seg], r1[k]))
     bm.faces.new(rows[0][::-1])
     bm.faces.new(rows[-1])
     if kind == 'fork':
-        for i in range(4):     # tines
-            y = -0.0115 + 0.0023 + i * (0.023 - 0.0046) / 3
-            sklib._bm_box(bm, Vector((0.152 + 0.019, y, 0.0)), (0.038, 0.0028, 0.0024))
-    bmesh.ops.remove_doubles(bm, verts=bm.verts[:], dist=1e-6)
-    ob = mesh(name, bm, C_TABLE, (sklib.stainless(0.05),))
-    sklib.bevel(ob, 0.0007, 2, 30)
+        x0, L = 0.152, 0.042
+        for i in range(4):
+            y0 = -0.0118 + 0.0016 + i * (0.0236 - 0.0032) / 3
+            trows = []
+            for t in (0.0, 0.5, 0.85, 1.0):
+                x = x0 + t * L
+                r_ = 0.0013 * (1 - 0.55 * t ** 2)
+                z = zc(0.153) - 0.0035 * t * t * 0.4 - 0.001 * t
+                trows.append([bm.verts.new((x, y0 + r_ * math.cos(2 * math.pi * k / 8),
+                                            z + r_ * 0.8 * math.sin(2 * math.pi * k / 8))) for k in range(8)])
+            for r0, r1 in zip(trows, trows[1:]):
+                for k in range(8):
+                    bm.faces.new((r0[k], r0[(k + 1) % 8], r1[(k + 1) % 8], r1[k]))
+            bm.faces.new(trows[-1])
+    ob = mesh(name, bm, C_TABLE, (cutlery_mat(),))
+    ob.data.shade_smooth()
     return ob
+
+
+def cutlery_mat():
+    """Polished 18/10 stainless flatware: bright metal, low roughness with fine wipe streaks + fingerprint smudges."""
+    m = bpy.data.materials.get('flatware')
+    if m:
+        return m
+    m, nt = sklib._new_mat('flatware')
+    b = _n(nt, 'ShaderNodeBsdfPrincipled', 700, 0)
+    _l(nt, b.outputs[0], _n(nt, 'ShaderNodeOutputMaterial', 1000, 0).inputs['Surface'])
+    tc = _n(nt, 'ShaderNodeTexCoord', -700, 0)
+    mp = _n(nt, 'ShaderNodeMapping', -500, 0)
+    mp.inputs['Scale'].default_value = (40.0, 1500.0, 1500.0)           # streaks along the handle
+    _l(nt, tc.outputs['Object'], mp.inputs['Vector'])
+    st = _noise(nt, mp.outputs[0], 1.0, 4.0, 0.5, -300, 0)
+    sm = _noise(nt, tc.outputs['Object'], 160.0, 3.0, 0.6, -300, -250)    # smudges
+    r = _math(nt, 'MULTIPLY_ADD', _maprange(nt, sm.outputs['Fac'], 0.5, 0.7, 0.0, 0.12, -100, -250), 1.0,
+              x=100, y=-100, c=_maprange(nt, st.outputs['Fac'], 0.3, 0.7, 0.05, 0.12, -100, 0))
+    _l(nt, r, b.inputs['Roughness'])
+    b.inputs['Base Color'].default_value = (0.78, 0.77, 0.75, 1)
+    b.inputs['Metallic'].default_value = 1.0
+    return m
 
 
 def napkin(name, loc, rot, size=(0.2, 0.14)):
@@ -504,7 +574,7 @@ def napkin(name, loc, rot, size=(0.2, 0.14)):
     for j in range(ny):
         for i in range(nx):
             bm.faces.new((vs[j][i], vs[j][i + 1], vs[j + 1][i + 1], vs[j + 1][i]))
-    ob = mesh(name, bm, C_TABLE, (sklib.pbr('napkin_linen', 'rough_linen', scale=0.3, tint=(0.84, 0.81, 0.74), contrast=0.5, wear=0.04, ao_dist=0.05, rough=(0.75, 1.0)),), loc=loc, rot=(0, 0, rot), smooth=True)
+    ob = mesh(name, bm, C_TABLE, (sklib.pbr('napkin_linen', 'rough_linen', scale=0.3, tint=(0.863, 0.791, 0.672), contrast=0.5, wear=0.04, ao_dist=0.05, rough=(0.75, 1.0)),), loc=loc, rot=(0, 0, rot), smooth=True)
     sol = ob.modifiers.new('sol', 'SOLIDIFY')
     sol.thickness, sol.offset = 0.0025, 1
     return ob
@@ -523,7 +593,8 @@ def candle(loc):
     _l(nt, em.outputs[0], _n(nt, 'ShaderNodeOutputMaterial', 300, 0).inputs['Surface'])
     fl = lathe('candle_flame', [(0, 0.082), (0.0035, 0.087), (0.0028, 0.094), (0, 0.104)], C_TABLE, fm, 16, loc)
     L = bpy.data.lights.new('candle', 'POINT')
-    L.energy, L.color, L.shadow_soft_size = 1.2, sklib.kelvin_rgb(1900), 0.006
+    L.energy, L.color, L.shadow_soft_size = 2.7, amber('#ffb46b'), 0.006
+    L.use_shadow = False
     lo = sklib.new_obj('L_candle', L, C_LIGHT, loc=Vector(loc) + Vector((0, 0, 0.092)))
     L.keyframe_insert('energy', frame=1)
     fc = L.animation_data.action
@@ -543,8 +614,7 @@ def phone(loc, rot):
     sklib._bm_box(bm, Vector((0.045, 0.018, 0.0085)), (0.04, 0.03, 0.0016))
     cb = mesh('phone_cambump', bm, C_TABLE, (sklib.plastic((0.02, 0.02, 0.022), 0.05, 'phone_bump'),))
     sklib.bevel(cb, 0.004, 3, 40)
-    parent_keep(cb, ob)
-    cb.location = (0.045, 0.018, 0.0)
+    cb.parent = ob
     return ob
 
 
@@ -557,9 +627,9 @@ def bread(loc):
     _l(nt, b.outputs[0], _n(nt, 'ShaderNodeOutputMaterial', 1000, 0).inputs['Surface'])
     tc = _n(nt, 'ShaderNodeTexCoord', -900, 0)
     vo = _n(nt, 'ShaderNodeTexVoronoi', -650, 0)
-    vo.inputs['Scale'].default_value = 320.0
+    vo.inputs['Scale'].default_value = 260.0
     _l(nt, tc.outputs['Object'], vo.inputs['Vector'])
-    holes = _maprange(nt, vo.outputs['Distance'], 0.05, 0.22, 1.0, 0.0, -450, 0)
+    holes = _maprange(nt, vo.outputs['Distance'], 0.04, 0.3, 1.0, 0.0, -450, 0)
     rad = _n(nt, 'ShaderNodeVectorMath', -650, 300, operation='LENGTH')
     sep = _n(nt, 'ShaderNodeSeparateXYZ', -850, 300)
     _l(nt, tc.outputs['Object'], sep.inputs[0])
@@ -567,9 +637,9 @@ def bread(loc):
     _l(nt, sep.outputs['X'], cmb.inputs['X'])
     _l(nt, _math(nt, 'MULTIPLY', sep.outputs['Y'], 1.35, x=-850, y=420), cmb.inputs['Y'])
     _l(nt, cmb.outputs[0], rad.inputs[0])
-    crust = _maprange(nt, rad.outputs['Value'], 0.046, 0.052, 0.0, 1.0, -450, 300)
-    col = _mix(nt, holes, (0.86, 0.76, 0.58), (0.55, 0.43, 0.3), 'MIX', -200, 150)
-    col = _mix(nt, crust, col, (0.35, 0.17, 0.06), 'MIX', 100, 200)
+    crust = _maprange(nt, rad.outputs['Value'], 0.043, 0.051, 0.0, 1.0, -450, 300)
+    col = _mix(nt, holes, (0.8, 0.7, 0.52), (0.38, 0.28, 0.17), 'MIX', -200, 150)
+    col = _mix(nt, crust, col, (0.2, 0.09, 0.03), 'MIX', 100, 200)
     _l(nt, col, b.inputs['Base Color'])
     b.inputs['Roughness'].default_value = 0.85
     b.inputs['Subsurface Weight'].default_value = 0.15
@@ -584,7 +654,9 @@ def bread(loc):
         bm = bmesh.new()
         bmesh.ops.create_uvsphere(bm, u_segments=32, v_segments=8, radius=1.0)
         for v in bm.verts:
-            v.co = Vector((v.co.x * 0.055, v.co.y * 0.041, max(-1, min(1, v.co.z * 3)) * 0.007))
+            ang = math.atan2(v.co.y, v.co.x)
+            wob = 1 + 0.06 * math.sin(3 * ang + i * 2.1) + 0.025 * math.sin(7 * ang + i) + 0.04 * math.cos(ang)
+            v.co = Vector((v.co.x * 0.058 * wob, v.co.y * 0.043 * wob, max(-1, min(1, v.co.z * 3)) * 0.0065))
         ob = mesh('bread_slice_%d' % i, bm, C_TABLE, (crumb,), uv=False, smooth=True,
                   loc=Vector(loc) + Vector((-0.04 + i * 0.035, 0.0 + i * 0.008, 0.026 + i * 0.006)),
                   rot=(0, -14 * D2R, (10 + i * 7) * D2R))
@@ -630,7 +702,7 @@ def prawn_source():
         if o is not None and o != ob:
             bpy.data.objects.remove(o, do_unlink=True)
     me = ob.data
-    body_mi = [i for i, m in enumerate(me.materials) if m and m.name.startswith('Q11545')]
+    body_mi = [i for i, m in enumerate(me.materials) if m and (m.name.startswith('Q11545') or m.name.startswith('PRAWN_SHELL'))]
     img = None
     for n in me.materials[body_mi[0]].node_tree.nodes:
         if n.type == 'TEX_IMAGE' and n.image:
@@ -659,6 +731,15 @@ def prawn_source():
     ztop = max(c.z for c in co if abs(c.x - cx) < 0.05 * (mx.x - mn.x))
     zc = ztop - 0.0105 / k                      # body centre line ~10 mm under the back at mid-length
     me.transform(Matrix.Diagonal((k, k, k, 1)) @ Matrix.Translation(-Vector((cx, (mn.y + mx.y) / 2, zc))))
+    # cooked + skewered: walking legs / swimmerets are trimmed (they read as a hairy fringe at macro distance)
+    bm = bmesh.new()
+    bm.from_mesh(me)
+    cut = [v for v in bm.verts if v.co.z < -0.0105 and -0.04 < v.co.x < 0.035]
+    bmesh.ops.delete(bm, geom=cut, context='VERTS')
+    loose = [v for v in bm.verts if not v.link_faces]
+    bmesh.ops.delete(bm, geom=loose, context='VERTS')
+    bm.to_mesh(me)
+    bm.free()
     me.shade_smooth()
     mat = prawn_cooked(img)
     me.materials.append(mat)
@@ -700,56 +781,74 @@ def bamboo_mat():
 
 
 def tuna_slices(name, origin, yaw, n=5):
+    """Slices cut from one seared loin and fanned: each slice is a rounded, slightly wedge-shaped section whose
+    outline wobbles (knife + muscle flakes), sizes taper toward the loin ends."""
     m = tuna_mat()
     root = sklib.new_obj(name, None, C_FOOD, loc=origin, rot=(0, 0, yaw))
+    r = random.Random(len(name))
     for i in range(n):
+        t = i / max(1, n - 1)
+        k = 0.82 + 0.18 * math.sin(math.pi * (0.15 + 0.7 * t))          # loin tapers toward both ends
         bm = bmesh.new()
         bmesh.ops.create_cube(bm, size=1.0)
-        bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=4, use_grid_fill=True)
+        bmesh.ops.subdivide_edges(bm, edges=bm.edges[:], cuts=6, use_grid_fill=True)
+        ph = r.uniform(0, 6)
         for v in bm.verts:
             x, y, z = v.co
-            v.co = Vector((x * 0.009, y * 0.066 * (1 - 0.1 * (2 * z) ** 2) * (1 + 0.04 * math.sin(z * 7 + i)),
-                           z * 0.026 * (1 - 0.12 * (2 * y) ** 4)))
+            wob = 1 + 0.05 * math.sin(z * 9 + ph) + 0.03 * math.sin(y * 13 + ph * 2) + r.uniform(-0.006, 0.006)
+            v.co = Vector((x * (0.0085 + 0.0025 * (z + 0.5)),                  # slightly wedge-cut
+                           y * 0.064 * k * (1 - 0.18 * (2 * z) ** 2) * wob,
+                           z * 0.025 * k * (1 - 0.22 * (2 * y) ** 4) * wob))
         ob = mesh('%s.slice_%d' % (name, i), bm, C_FOOD, (m,), uv=False, smooth=True)
-        sklib.bevel(ob, 0.0018, 3, 30)
+        sklib.bevel(ob, 0.0022, 3, 30)
         ob.parent = root     # fanned row: cut faces up, each slice resting on the previous one
-        ob.location = (-i * 0.0165, 0.004 * math.sin(i * 0.9), 0.0105 + i * 0.0022)
-        ob.rotation_euler = (0, -78 * D2R + rng.uniform(-0.03, 0.03), i * 0.035 + rng.uniform(-0.03, 0.03))
+        ob.location = (-i * 0.0158, 0.003 * math.sin(i * 1.7) + r.uniform(-0.002, 0.002), 0.0105 + i * 0.0021)
+        ob.rotation_euler = (r.uniform(-0.05, 0.05), -76 * D2R + r.uniform(-0.05, 0.05), i * 0.04 + r.uniform(-0.04, 0.04))
     return root
 
 
 def leaves(name, center, radius, count, seed=3):
+    """Loose salad: wild rocket (long, few rounded lobes) + baby spinach (ovate, cupped), each leaf cupped, arched
+    and twisted, heaped low in the middle."""
     r = random.Random(seed)
-    mats = [leaf_mat('leaf_rocket', (0.05, 0.16, 0.025)), leaf_mat('leaf_dark', (0.025, 0.09, 0.02)),
-            leaf_mat('leaf_frisee', (0.2, 0.36, 0.06))]
+    mats = [leaf_mat('leaf_rocket', (0.035, 0.1, 0.018)), leaf_mat('leaf_dark', (0.018, 0.065, 0.012)),
+            leaf_mat('leaf_frisee', (0.12, 0.24, 0.04))]
     bm = bmesh.new()
     for k in range(count):
-        L, W = r.uniform(0.035, 0.06), r.uniform(0.005, 0.009)
-        nu, nv = 10, 4
+        spin = r.random() < 0.4
+        L = r.uniform(0.032, 0.048) if spin else r.uniform(0.045, 0.075)
+        W = r.uniform(0.011, 0.016) if spin else r.uniform(0.005, 0.008)
+        nu, nv = 12, 6
         a = r.uniform(0, 2 * math.pi)
         d = radius * math.sqrt(r.random())
-        h = (1 - (d / radius) ** 2) * 0.028
+        h = (1 - (d / radius) ** 2) * 0.022
         M = Matrix.Translation(center + Vector((d * math.cos(a), d * math.sin(a), h + 0.002))) @ \
-            Euler((r.uniform(-0.6, 0.6), r.uniform(-0.6, 0.6), r.uniform(0, 6.28))).to_matrix().to_4x4()
-        lob = r.uniform(0.35, 0.7)
+            Euler((r.uniform(-0.7, 0.7), r.uniform(-0.5, 0.5), r.uniform(0, 6.28))).to_matrix().to_4x4()
+        lob, nl, ph = r.uniform(0.3, 0.8), r.choice((3.5, 4.5, 5.5)), r.uniform(0, 1)
+        cup, arch, tw = r.uniform(0.25, 0.6), r.uniform(-0.004, 0.008), r.uniform(-0.6, 0.6)
         grid = []
         for i in range(nu + 1):
             u = i / nu
-            w = W * math.sin(math.pi * min(u * 1.1, 1)) ** 0.7 * (1 + lob * math.sin(u * math.pi * 7))
+            if spin:
+                w = W * math.sin(math.pi * min(1.0, u ** 0.8 * 1.02)) ** 0.75
+            else:
+                w = W * math.sin(math.pi * min(u * 1.05, 1)) ** 0.6 * (1 + lob * max(0.0, math.sin((u + ph) * math.pi * nl)) * (1 - u))
             row = []
             for j in range(nv + 1):
                 t = j / nv * 2 - 1
-                z = 0.25 * W * t * t + 0.004 * math.sin(u * 9 + k) + 0.006 * u * u
-                row.append(bm.verts.new(M @ Vector((u * L - L / 2, t * w, z))))
+                z = cup * W * t * t + arch * u * u + 0.0015 * math.sin(u * 11 + k + t * 3)
+                y = t * w
+                c, s_ = math.cos(tw * u), math.sin(tw * u)
+                row.append(bm.verts.new(M @ Vector((u * L - L / 2, y * c - z * s_, y * s_ + z * c))))
             grid.append(row)
-        mi = k % 3
+        mi = 1 if spin else (2 if r.random() < 0.12 else 0)
         for i in range(nu):
             for j in range(nv):
                 f = bm.faces.new((grid[i][j], grid[i + 1][j], grid[i + 1][j + 1], grid[i][j + 1]))
                 f.material_index = mi
     ob = mesh(name, bm, C_FOOD, mats, uv=False, smooth=True)
     sol = ob.modifiers.new('sol', 'SOLIDIFY')
-    sol.thickness = 0.0006
+    sol.thickness = 0.0005
     return ob
 
 
@@ -862,13 +961,12 @@ def dish(prefix, c, yaw, flip=1):
     zp = c.z + 0.010
     R = Matrix.Rotation(yaw, 3, 'Z')
     P = lambda x, y, z=0.0: c + R @ Vector((x, y, zp - c.z + z))
-    leaves(prefix + '.greens', P(0.045, 0.0), 0.065, 95, seed=len(prefix))
+    leaves(prefix + '.greens', P(0.045, 0.0), 0.062, 70, seed=len(prefix))
     tuna_slices(prefix + '.tuna', P(-0.06, -0.05 * flip, -0.003), yaw - math.pi / 2 + 0.12, 6)
     skewer(prefix + '.skewer_a', P(0.025, 0.0, 0.019), yaw + math.pi / 2 + 0.06, 3, seed=1 + len(prefix))
     skewer(prefix + '.skewer_b', P(0.072, 0.008, 0.019), yaw + math.pi / 2 - 0.05, 3, seed=7 + len(prefix))
     lemon_wedge(prefix + '.lemon', P(-0.07, 0.075 * flip, 0.02), (-0.9, 0, yaw + 0.7))
     sauce_smear(prefix + '.smear', P(0, 0, 0.0002), 0.093, yaw + 3.5, yaw + 4.6)
-    herb_flecks(prefix + '.herbs', P(0.0, 0.0), 40, 0.04, 0.004)
     return pl
 
 
@@ -947,6 +1045,12 @@ def bridge_frost():
 
 
 # ------------------------------------------------------------------------------------------------------- lights
+def amber(h):
+    """r6: a warm hex used as the light's *seen* colour (not linearised). look.hex_rgb linearises #ffb46b to
+    (1, 0.46, 0.15) -- a deep orange-red light (#ffb46b here -> (1, 0.57, 0.25)) that, with the cool lift, turned the walnut magenta (crop R/G 2.6)."""
+    return tuple((a * b) ** 0.5 for a, b in zip(look.hex_rgb(h), look.hex_rgb(h, linear=False)))   # amber, midway
+
+
 def build_lights():
     def area(name, loc, rot, size, k, energy, sy=None):
         L = bpy.data.lights.new(name, 'AREA')
@@ -954,12 +1058,28 @@ def build_lights():
         L.size, L.size_y = size, sy or size
         L.color, L.energy = sklib.kelvin_rgb(k), energy
         return sklib.new_obj(name, L, C_LIGHT, loc=loc, rot=rot)
+
+    def aimed(o, loc, tgt):
+        o.location = Vector(loc)
+        o.rotation_euler = (Vector(tgt) - Vector(loc)).to_track_quat('-Z', 'Y').to_euler()
+        return o
     out = {}
-    out['window'] = area('L_window', (-1.15, 1.75, 1.35), (math.pi / 2, 0, math.pi), 3.2, 7200, 320, 2.4)
-    out['ceil_table'] = area('L_ceil_table', (-0.6, -0.8, 2.66), (0, 0, 0), 1.6, 3200, 110, 1.2)
-    out['ceil_kitchen'] = area('L_ceil_kitchen', (3.3, 0.6, 2.66), (0, 0, 0), 1.6, 3200, 110, 1.0)
-    out['under_cab'] = area('L_undercab', (4.1, 1.68, 1.44), (0, 0, 0), 1.2, 2900, 30, 0.12)
-    out['front_fill'] = area('L_front_fill', (0.6, -2.9, 1.6), (-math.pi / 2, 0, 0), 2.5, 3400, 70, 1.4)
+    # art #75 (COLOR_SCRIPT 00): cool window fill #5b7da6 ~0.25x the warm key; warm 2900 K key camera-left high; warm
+    # candle rim #ff8a3d behind the plates; ceiling/front fills cut back so the room falls into walnut dusk.
+    out['window'] = area('L_window', (-1.15, 1.75, 1.35), (math.pi / 2, 0, math.pi), 3.2, 7200, 200, 2.4)
+    out['window'].data.color = look.hex_rgb('#5b7da6')
+    out['key'] = aimed(area('L_key', (0, 0, 0), (0, 0, 0), 0.9, 2900, 190), (-1.7, -0.5, 2.35), (-0.1, 0.0, TOP))
+    out['key'].data.color = amber('#ffb46b')
+    for nm, x in (('L_rim_A', -0.42), ('L_rim_B', 0.42)):
+        out[nm] = aimed(area(nm, (0, 0, 0), (0, 0, 0), 0.35, 2000, 20), (x, 0.62, 0.98), (x, -0.05, TOP))
+        out[nm].data.color = amber('#ffc27a')   # r6: amber rim (orange-red #ff8a3d read pink)
+    out['ceil_table'] = area('L_ceil_table', (-0.6, -0.8, 2.66), (0, 0, 0), 1.6, 3200, 28, 1.2)
+    out['ceil_kitchen'] = area('L_ceil_kitchen', (3.3, 0.6, 2.66), (0, 0, 0), 1.6, 3200, 40, 1.0)
+    out['under_cab'] = area('L_undercab', (4.1, 1.68, 1.44), (0, 0, 0), 1.2, 2900, 45, 0.12)
+    out['front_fill'] = area('L_front_fill', (0.6, -2.9, 1.6), (-math.pi / 2, 0, 0), 2.5, 3400, 22, 1.4)
+    out['under_cab'].data.color = look.hex_rgb('#ffb46b')
+    for k in ('ceil_table', 'ceil_kitchen', 'front_fill'):           # neutral-warm bounce, so amber stays in the pools
+        out[k].data.color = (1.0, 0.86, 0.72)
     # pendant over the table: black dome shade, warm bulb, spot down + soft point for the shade glow
     shade = sklib.painted_metal((0.025, 0.025, 0.027), wear=0.05, contrast=0.3)
     lathe('pendant_shade', [(0.0, 1.78), (0.025, 1.78), (0.03, 1.765), (0.12, 1.70), (0.19, 1.60), (0.2, 1.585),
@@ -978,8 +1098,10 @@ def build_lights():
     bmesh.ops.create_uvsphere(bm, u_segments=24, v_segments=12, radius=0.045)
     mesh('pendant_bulb', bm, C_LIGHT, (bm_,), loc=(0, 0, 1.69), uv=False, smooth=True)
     L = bpy.data.lights.new('L_pendant', 'SPOT')
-    L.energy, L.color, L.spot_size, L.spot_blend, L.shadow_soft_size = 170, sklib.kelvin_rgb(2700), 110 * D2R, 0.5, 0.05
+    L.energy, L.color, L.spot_size, L.spot_blend, L.shadow_soft_size = 145, amber('#ffb46b'), 110 * D2R, 0.5, 0.05
     out['pendant'] = sklib.new_obj('L_pendant', L, C_LIGHT, loc=(0, 0, 1.66))
+    for k in ('ceil_table', 'ceil_kitchen', 'under_cab', 'front_fill', 'L_rim_A', 'L_rim_B'):   # soft fills: no shadow maps (~40 % faster,
+        out[k].data.use_shadow = False                                     # no visible change; window + pendant shade)
     return out
 
 
@@ -991,8 +1113,8 @@ def world():
     env = _n(nt, 'ShaderNodeTexEnvironment', -400, -100)
     env.image = img
     bg1 = _n(nt, 'ShaderNodeBackground', -100, 150)
-    bg1.inputs['Color'].default_value = (0.32, 0.26, 0.2, 1)
-    bg1.inputs['Strength'].default_value = 0.25
+    bg1.inputs['Color'].default_value = (*look.hex_rgb('#1d2433'), 1)   # art #75: evening world
+    bg1.inputs['Strength'].default_value = 2.5
     bg2 = _n(nt, 'ShaderNodeBackground', -100, -100)
     _l(nt, env.outputs[0], bg2.inputs['Color'])
     bg2.inputs['Strength'].default_value = 0.3
@@ -1007,42 +1129,6 @@ def world():
 
 
 # -------------------------------------------------------------------------------------------------------- diners
-def to_local(rig, p):
-    return rig.matrix_world.inverted() @ Vector(p)
-
-
-def dir_local(rig, d):
-    return rig.matrix_world.to_3x3().inverted() @ Vector(d)
-
-
-ARM_BONES = ('upperarm', 'lowerarm', 'hand')
-
-
-def reset_arm(rig, s_):
-    from mathutils import Quaternion
-    for b in ARM_BONES:
-        pb = rig.pose.bones['%s_%s' % (b, s_)]
-        pb.rotation_quaternion = Quaternion(pb['sk_base']) if 'sk_base' in pb else (1, 0, 0, 0)
-
-
-def reach(rig, s_, wrist_world, pole_world, hand_dir_world):
-    reset_arm(rig, s_)
-    bpy.context.view_layer.update()
-    people._arm(rig, s_, ('reach', to_local(rig, wrist_world), dir_local(rig, pole_world).normalized(),
-                          dir_local(rig, hand_dir_world).normalized()))
-
-
-def key_arm(rig, s_, f):
-    for b in ARM_BONES:
-        rig.pose.bones['%s_%s' % (b, s_)].keyframe_insert('rotation_quaternion', frame=f)
-
-
-def grip(rig, s_, curl=(30, 55, 62, 66), thumb=20):
-    for f, c in zip(('index', 'middle', 'ring', 'pinky'), curl):
-        for k in ('01', '02', '03'):
-            people._set_rot(rig, '%s_%s_%s' % (f, k, s_), -(c + rng.uniform(-4, 4)), 0, 0, mirror=False)
-
-
 def seat_height(rig):
     """Lowest body vertex near the hips (buttocks) -> chair seat top."""
     bpy.context.view_layer.update()
@@ -1070,34 +1156,14 @@ def hand_frame(rig, s_):
     return rig.matrix_world @ pb.head, rig.matrix_world @ pb.tail
 
 
-def attach(ob, rig, bone):
-    bpy.context.view_layer.update()
-    mw = ob.matrix_world.copy()
-    ob.parent = rig
-    ob.parent_type = 'BONE'
-    ob.parent_bone = bone
-    pb = rig.pose.bones[bone]
-    pm = rig.matrix_world @ pb.matrix @ Matrix.Translation((0, pb.bone.length, 0))
-    ob.matrix_parent_inverse = pm.inverted()
-    ob.matrix_basis = mw
-
-
-def place_tool(ob, rig, s_, tip_world):
-    """Lay a cutlery piece (local +X = tip) from the palm heel to tip_world; then bone-parent it to the hand."""
-    h, t = hand_frame(rig, s_)
-    heel = h + (t - h) * 0.35 + Vector((0, 0, -0.022))
-    d = (Vector(tip_world) - heel)
-    q = d.to_track_quat('X', 'Z')
-    L = 0.2 if 'knife' not in ob.name else 0.21
-    ob.matrix_world = Matrix.Translation(Vector(tip_world) - d.normalized() * (L - 0.005)) @ q.to_matrix().to_4x4()
-    attach(ob, rig, 'hand_' + s_)
-
-
 def build_diners(plateA, plateB):
+    """Two diners mid-conversation: seated upright, hands resting in the lap under the table edge (MPFB hands read
+    mannequin-like up close, so they stay out of view), heads slightly bowed toward the table. Cutlery is laid on the
+    table beside each plate (fork left, knife right of the diner)."""
     out = {}
-    specs = [('DinerA', 'male', 0.3, 0.32, 'diner_shirt', -1.02, math.pi / 2, 5, plateA),
-             ('DinerB', 'female', 0.28, 0.68, 'diner_sweater', 1.02, -math.pi / 2, 9, plateB)]
-    for name, sex, age, tone, outfit, x, rz, seed, pc in specs:
+    specs = [('DinerA', 'male', 0.3, 0.32, 'diner_shirt', -1.02, math.pi / 2, 5, plateA, (4, 3, 2, 6, 12, 0)),
+             ('DinerB', 'female', 0.28, 0.68, 'diner_sweater', 1.02, -math.pi / 2, 9, plateB, (6, 4, 3, 4, 16, 8))]
+    for name, sex, age, tone, outfit, x, rz, seed, pc, lean in specs:
         rig = people.make_person(name, sex=sex, age=age, skin_tone=tone, outfit=outfit, pose='sit',
                                  location=(x, 0, 0), rotation_z=rz, seed=seed)
         for o in [rig] + list(rig.children):
@@ -1105,45 +1171,34 @@ def build_diners(plateA, plateB):
                 c.objects.unlink(o)
             C_PEOPLE.objects.link(o)
         sgn = 1 if x < 0 else -1                       # +1: diner faces +X
-        # lean in to eat, head down toward the plate (keeps the face turned away from the 3/4 camera)
-        people._set_rot(rig, 'spine_01', 10, 0, 0)
-        people._set_rot(rig, 'spine_02', 8, 0, 0)
-        people._set_rot(rig, 'spine_03', 6, 0, 0)
-        people._set_rot(rig, 'neck_01', 10, 0, 0)
-        people._set_rot(rig, 'head', 22, 0, 0)
+        people._set_rot(rig, 'spine_01', lean[0], 0, 0)
+        people._set_rot(rig, 'spine_02', lean[1], 0, 0)
+        people._set_rot(rig, 'spine_03', lean[2], 0, 0)
+        people._set_rot(rig, 'neck_01', lean[3], 0, 0)
+        people._set_rot(rig, 'head', lean[4], 0, lean[5])
+        for s_, sx in (('l', 1), ('r', -1)):          # forearms on the thighs, hands well under the table top
+            people._arm(rig, s_, ('aim', Vector((sx * 0.08, -0.28, -1)), Vector((sx * 0.02, -1, -0.75)),
+                                  Vector((sx * 0.01, -1, -0.9))))
         bpy.context.view_layer.update()
         for pb in rig.pose.bones:
             pb['sk_base'] = list(pb.rotation_quaternion)
         sz, hip = seat_height(rig)
-        ch = chair(name + '.chair', hip.x - sgn * 0.02, rz, max(0.38, sz - 0.004))
-        # cutlery: right hand knife, left hand fork (world sides: facing +X -> right = -Y)
-        right_y = -sgn
+        chair(name + '.chair', hip.x - sgn * 0.02, rz, max(0.38, sz - 0.004))
+        for s_ in ('l', 'r'):
+            h, t = hand_frame(rig, s_)
+            print('HAND', name, s_, tuple(round(v, 3) for v in t), 'under table' if t.z < TOP - 0.06 else 'CHECK')
+        # cutlery laid flat beside the plate: diner's left = +Y*sgn
+        pcv = Vector(pc)
         fork = cutlery(name + '.fork', 'fork')
         knife = cutlery(name + '.knife', 'knife')
-        pcv = Vector(pc)
-        out[name] = dict(rig=rig, sgn=sgn, fork=fork, knife=knife, pc=pcv, right_y=right_y)
-        # hands near the plate (wrist targets); the pole pushes elbows out and back
-        fw = lambda dx, dy, dz: pcv + Vector((sgn * dx, dy, dz))
-        reach(rig, 'l', fw(-0.24, -right_y * 0.085, 0.085), (sgn * -0.3, -right_y * 1.0, -0.4), (sgn * 1, -right_y * 0.15, -0.55))
-        reach(rig, 'r', fw(-0.24, right_y * 0.075, 0.085), (sgn * -0.3, right_y * 1.0, -0.4), (sgn * 1, right_y * 0.15, -0.55))
-        bpy.context.view_layer.update()
-        place_tool(fork, rig, 'l', fw(-0.05, -right_y * 0.002, 0.03))
-        place_tool(knife, rig, 'r', fw(-0.055, right_y * 0.05, 0.026))
-    # Diner A cuts the tuna: hands enter f1->20, two sawing strokes, fork lifts a little at the end
-    A = out['DinerA']
-    rig, sgn, pc, ry = A['rig'], A['sgn'], A['pc'], A['right_y']
-    fw = lambda dx, dy, dz: pc + Vector((sgn * dx, dy, dz))
-    for f, kx, fz in ((1, -0.34, 0.12), (22, -0.25, 0.09), (32, -0.225, 0.085), (42, -0.255, 0.09), (52, -0.225, 0.085),
-                      (70, -0.24, 0.09), (100, -0.25, 0.11)):
-        bpy.context.scene.frame_set(f)
-        reach(rig, 'r', fw(kx, ry * 0.075, fz), (sgn * -0.3, ry * 1.0, -0.4),
-              (sgn * 1, ry * 0.15, -0.55))
-        reach(rig, 'l', fw(-0.24 if f > 1 else -0.33, -ry * 0.085, fz + 0.005), (sgn * -0.3, -ry * 1.0, -0.4),
-              (sgn * 1, -ry * 0.15, -0.55))
-        key_arm(rig, 'r', f)
-        key_arm(rig, 'l', f)
-    sklib.ease_keys(rig)
-    bpy.context.scene.frame_set(1)
+        yaw = 0.0 if sgn > 0 else math.pi
+        fork.location = pcv + Vector((-sgn * 0.09, sgn * 0.185, 0.0016))
+        fork.rotation_euler = (0, 0, yaw + 0.03 * sgn)
+        knife.location = pcv + Vector((-sgn * 0.1, -sgn * 0.185, 0.0029))
+        knife.rotation_euler = (0, 0, yaw - 0.02 * sgn)
+        for ob in (fork, knife):                       # rest on the lowest point
+            ob.location.z = pcv.z - min(v.co.z for v in ob.data.vertices) + 0.0002
+        out[name] = dict(rig=rig, sgn=sgn, fork=fork, knife=knife, pc=pcv)
     return out
 
 
@@ -1160,8 +1215,13 @@ def build_camera(bridge_loc, focus_targets):
     cam.data.sensor_width = 36
     keys = []
     pA = Vector((-0.40, 0.0, TOP))
-    keys.append((1, Vector((-0.40, 0.085, 1.42)), Euler((0, 0, -90 * D2R)), 50))
-    keys.append((45, Vector((-0.40, 0.075, 1.50)), Euler((0, 0, -89 * D2R)), 48))
+    # opening: high-angle food macro over plate A (65 mm, f/2, ~0.5 m) -- prawn skewers sharp, tuna/greens/table
+    # falling off in focus; diners' hands rest in their laps, outside this frame
+    tgt = Vector((-0.40, -0.03, TOP + 0.02))
+    p = Vector((-0.47, -0.40, 1.24))
+    keys.append((1, p, cam_rot(p, tgt), 58))
+    p = Vector((-0.45, -0.45, 1.31))
+    keys.append((45, p, cam_rot(p, tgt + Vector((0.01, 0.01, 0))), 55))
     p = Vector((-0.25, -0.95, 1.95))
     keys.append((90, p, cam_rot(p, (0.0, 0.0, TOP)), 40))
     p = Vector((0.05, -1.6, 1.8))
@@ -1175,7 +1235,7 @@ def build_camera(bridge_loc, focus_targets):
     # push-in onto the frost patch (BRIDGE_FROST): position eases to 0.12 m above it, lens 35 -> 100, yaw -> 0
     end = bridge_loc + Vector((0, 0, 0.12))
     for f in range(194, 217, 2):
-        t = (f - 190) / 26.0
+        t = min(1.0, (f - 190) / 22.0)                 # lands at f212, holds still to f216 (no zoom streaks)
         e = t * t * (3 - 2 * t)
         pos = p190.lerp(end, e) + Vector((0, 0, 0.12 * math.sin(math.pi * e) * (1 - e)))
         aim = aim190.lerp(bridge_loc, min(1.0, e * 1.6))
@@ -1192,11 +1252,39 @@ def build_camera(bridge_loc, focus_targets):
         fe.location = loc
         fe.keyframe_insert('location', frame=f)
     sklib.ease_keys(fe)
-    sklib.dof(cam, fe, 2.8)
+    sklib.dof(cam, fe, 2.0)
+    for f, v in ((1, 2.0), (55, 2.0), (100, 2.8)):           # wide open for the macro, f/2.8 from the crane on
+        cam.data.dof.aperture_fstop = v
+        cam.data.dof.keyframe_insert('aperture_fstop', frame=f)
+    sklib.ease_keys(cam.data)
     return cam
 
 
 # --------------------------------------------------------------------------------------------------------- build
+def TABLE_GRADE(s):
+    """Per-scene grade (COLOR_SCRIPT §3, complementary): cool window-blue lift under warm 2900 K gain; bounded warm
+    haze over the dining area only (no world fog: lead note, a world volume swallows the window/sky)."""
+    look.grade(s, lift='#5b7da6', gain='#ffb46b', sat=1.08, contrast=2.0, bloom=0.2, vignette=0.1,
+               lift_amt=0.025, gain_amt=0.015)
+    gl = next(n for n in s.compositing_node_group.nodes if n.bl_idname == 'CompositorNodeGlare')
+    gl.inputs['Size'].default_value = GLARE_SIZE      # the default (0.5) spreads the warm highlights into a full-frame
+    gl.inputs['Threshold'].default_value = 1.5        # orange wash; keep bloom on the flame/bulb/glass glints only
+    m, nt = sklib._new_mat('table_haze')
+    v = _n(nt, 'ShaderNodeVolumePrincipled', 0, 0)
+    v.inputs['Color'].default_value = (*look.hex_rgb('#ffcf9a'), 1)
+    v.inputs['Density'].default_value = HAZE_DENSITY
+    v.inputs['Anisotropy'].default_value = 0.45          # forward scatter: glow around pendant/candle
+    _l(nt, v.outputs['Volume'], _n(nt, 'ShaderNodeOutputMaterial', 300, 0).inputs['Volume'])
+    hz = box('table_haze', (-0.4, -0.3, 1.33), (4.6, 4.2, 2.62), m, C_SET, 0)   # x<=1.9: kitchen/carton/frost clear
+    hz.visible_shadow = False
+    e = s.eevee
+    e.volumetric_end, e.volumetric_tile_size, e.volumetric_samples = 8.0, '8', 24
+
+
+HAZE_DENSITY = 0.008
+GLARE_SIZE = 0.15
+
+
 def main():
     build_room()
     build_table()
@@ -1204,7 +1292,7 @@ def main():
     world()
     pA = Vector((-0.40, 0.0, TOP))
     pB = Vector((0.40, 0.0, TOP))
-    plA = dish('DishA', pA, 0.0, 1)
+    plA = dish('DishA', pA, -math.pi / 2, 1)
     plB = dish('DishB', pB, math.pi, 1)
     wine_glass('glassA_wine', (-0.16, -0.27, TOP), 0.45)
     tumbler('glassA_water', (-0.27, -0.33, TOP), 0.7)
@@ -1213,7 +1301,7 @@ def main():
     napkin('napkinA', (-0.42, 0.29, TOP), 0.08)
     napkin('napkinB', (0.42, -0.29, TOP), math.pi - 0.1)
     candle((0.02, -0.06, TOP))
-    phone((0.3, -0.31, TOP), 0.35)
+    phone((0.13, -0.30, TOP), 0.35)
     bread((-0.02, 0.2, TOP))
     crumbs(Vector((-0.25, 0.08, 0)), 10, 0.03, 'crumbs_plateA', bpy.data.materials['bread_crumb'], size=0.002)
     carton = build_kitchen()
@@ -1224,6 +1312,12 @@ def main():
     bl = blk.matrix_world.translation
     bridge_loc = Vector((bl.x + 0.02, bl.y - 0.004, bl.z + 0.085 + 0.0045))
     inst = sklib.instance(bc, bridge_loc, 0.0, 'BRIDGE_FROST_inst', C_KITCHEN)
+    bpy.data.lights['BRIDGE_FROST_light'].color = look.hex_rgb('#e6f2ff')     # COLOR_SCRIPT §2 BRIDGE_FROST
+    kd = bpy.data.lights.new('L_frost_kick', 'AREA')
+    kd.size, kd.color, kd.energy, kd.use_shadow = 0.3, look.hex_rgb('#ffb46b'), 2.5, False
+    kp = bridge_loc + Vector((-0.45, -0.55, 0.35))                            # from the table side, low
+    sklib.new_obj('L_frost_kick', kd, C_LIGHT, loc=kp,
+                  rot=(bridge_loc - kp).to_track_quat('-Z', 'Y').to_euler())
     diners = build_diners(pA, pB)
     # room lights fade out as the frost fills the frame (BRIDGE_FROST is lit by its own area light only)
     for nm, o in lights.items():
@@ -1234,12 +1328,16 @@ def main():
         o.data.energy = e * 0.02
         o.data.keyframe_insert('energy', frame=214)
         sklib.ease_keys(o.data)
-    cam = build_camera(bridge_loc, [(1, pA + Vector((0.0, 0, 0.02))), (45, pA + Vector((0.0, 0, 0.02))),
+    cam = build_camera(bridge_loc, [(1, pA + Vector((0.0, -0.07, 0.03))), (45, pA + Vector((0.0, -0.065, 0.03))),
                                     (130, Vector((0.05, 0.0, TOP + 0.02))), (165, CARTON_LOC + Vector((0, 0, 0.2))),
                                     (190, CARTON_LOC + Vector((0, 0, 0.2))), (206, bridge_loc + Vector((0, 0, 0.01))),
                                     (216, bridge_loc)])
     s.eevee.use_shadows = True
-    sklib.finish('table', 'int')
+    path = sklib.finish('table', 'int')
+    s.eevee.taa_render_samples = 32          # 32 spp is visually identical here (checked on f100), halves frame time
+    look.apply(s, 'table')                   # art #75: AgX MHC, warm haze, grade (after finish: it resets view/compositing)
+    TABLE_GRADE(s)
+    bpy.ops.wm.save_as_mainfile(filepath=path, relative_remap=True, compress=True)
 
 
 main()

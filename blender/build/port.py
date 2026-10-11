@@ -75,6 +75,19 @@ def rod(bm, p0, p1, r, mi=0, seg=8):
         f.material_index = mi
 
 
+def tbox(bm, c, size, top=0.85, fwd=0.0, mi=0, axis=1):
+    """Box with tumblehome: top face shrunk to `top`; the top edge on the -axis side (front) raked back by `fwd` m."""
+    r = bmesh.ops.create_cube(bm, size=1.0, matrix=Matrix.Translation(c) @ Matrix.Diagonal((*size, 1)))
+    for v in r['verts']:
+        if v.co.z > c.z:
+            v.co.x = c.x + (v.co.x - c.x) * top
+            v.co.y = c.y + (v.co.y - c.y) * top
+            if v.co[axis] < c[axis]:
+                v.co[axis] += fwd
+        for f in v.link_faces:
+            f.material_index = mi
+
+
 def key_loc(ob, f, loc):
     ob.location = loc
     ob.keyframe_insert('location', frame=f)
@@ -243,7 +256,7 @@ def water_flat():
 
 
 # ------------------------------------------------------------------------------------------------ world + sea
-sklib.sky_world(sun_elev_deg=52, sun_az_deg=135, sun_angle_deg=3.0)
+sklib.sky_world(sun_elev_deg=52, sun_az_deg=135, sun_angle_deg=6.0)   # soft penumbra: thin crane members leave no hard stripes
 SUN = bpy.data.objects['SK_Sun']
 sky = [n for n in bpy.data.worlds['SK_Sky'].node_tree.nodes if n.type == 'TEX_SKY'][0]
 
@@ -265,7 +278,8 @@ linear(SUN, SUN.data, bpy.data.worlds['SK_Sky'].node_tree)
 # one Ocean (seed 41, sklib defaults = BRIDGE_SEA); time 0 at f1
 # sklib.ocean = 6x6 displaced 100 m tiles around its origin; origin = the BRIDGE_SEA point under the f1 camera
 OC = (-90.0, -150.0)
-sea = sklib.ocean(size=600.0, seed=41, time=-1 / 24.0, animate=True, res=10, coll=C['ENV'])
+# reefer's ocean runs forwards to t=8.0 at its BRIDGE_SEA frame: port f1 must evaluate to exactly 8.0 (driver frame/24 + off)
+sea = sklib.ocean(size=600.0, seed=41, time=8.0 - 1 / 24.0, animate=True, res=10, coll=C['ENV'])
 sea.location = (OC[0] + sea.location.x, OC[1] + sea.location.y, 0)
 far = bpy.data.meshes.new('A-ENV-SEA-FAR')
 _h, _o = 7000.0, 299.0
@@ -423,9 +437,67 @@ def head_h(x, y):
 
 
 HEAD = terrain('A-ENV-HEADLAND', 20, 580, -480, -130, 112, 70, head_h, C['ENV'])
-RIDGE = terrain('A-ENV-HILLS-N', -1500, 2500, 1250, 2600, 200, 70,
-                lambda x, y: 40 + 230 * max(0, noise.noise(Vector((x / 900, y / 700, 0.2))) + 0.35) + 55 * fbm(x, y, 220, 6)
-                * (0.4 + max(0, noise.noise(Vector((x / 900, y / 700, 0.2))) + 0.35)), C['ENV'], 0.7)
+
+
+def hill_mat():
+    """Vegetated Eastern Ghats hill: dark forest / olive scrub / red-brown laterite patches by noise + slope, canopy
+    bump; aerial perspective toward the horizon sky colour (not a pale cut-out)."""
+    m = bpy.data.materials.get('hill_veg')
+    if m:
+        return m
+    m, nt = sklib._new_mat('hill_veg')
+    n = sklib._n
+    out = n(nt, 'ShaderNodeOutputMaterial', 1200, 0)
+    b = n(nt, 'ShaderNodeBsdfPrincipled', 900, 0)
+    nt.links.new(b.outputs[0], out.inputs['Surface'])
+    tc = n(nt, 'ShaderNodeTexCoord', -1200, 0)
+    geo = n(nt, 'ShaderNodeNewGeometry', -1200, -400)
+    nz = n(nt, 'ShaderNodeSeparateXYZ', -1000, -400)
+    nt.links.new(geo.outputs['Normal'], nz.inputs[0])
+    big = sklib._noise(nt, tc.outputs['Object'], 0.0035, 4.0, 0.55, -900, 200)       # ~300 m forest/scrub patches
+    mid = sklib._noise(nt, tc.outputs['Object'], 0.02, 6.0, 0.6, -900, 0)            # ~50 m clumps
+    fine = sklib._noise(nt, tc.outputs['Object'], 0.25, 4.0, 0.7, -900, -200)        # tree crowns
+    forest, scrub, dry, earth = (0.022, 0.045, 0.016), (0.075, 0.085, 0.032), (0.15, 0.12, 0.06), (0.19, 0.10, 0.055)
+    c = sklib._mix(nt, sklib._maprange(nt, big.outputs['Fac'], 0.42, 0.62, 0, 1, -650, 200), forest, scrub, 'MIX', -400, 200)
+    c = sklib._mix(nt, sklib._maprange(nt, mid.outputs['Fac'], 0.58, 0.72, 0, 0.8, -650, 0), c, dry, 'MIX', -200, 150)
+    slope = sklib._maprange(nt, nz.outputs['Z'], 0.82, 0.62, 0, 1, -650, -400)        # steep gullies/scarps -> laterite
+    c = sklib._mix(nt, sklib._math(nt, 'MULTIPLY', slope, sklib._maprange(nt, mid.outputs['Fac'], 0.4, 0.6, 0.3, 1.0,
+                                                                          -650, -250), x=-400, y=-300), c, earth, 'MIX', 0, 100)
+    c = sklib._mix(nt, sklib._maprange(nt, fine.outputs['Fac'], 0.3, 0.7, 0.0, 0.35, -650, -150), c, (0, 0, 0), 'MULTIPLY',
+                   200, 0)
+    nt.links.new(c, b.inputs['Base Color'])
+    b.inputs['Roughness'].default_value = 0.92
+    bp = n(nt, 'ShaderNodeBump', 600, -300)
+    bp.inputs['Strength'].default_value = 0.6
+    nt.links.new(fine.outputs['Fac'], bp.inputs['Height'])
+    nt.links.new(bp.outputs['Normal'], b.inputs['Normal'])
+    return m
+
+
+def hills_h(x, y):
+    """Ridged range north of the port: foothills rise from the plain (no card edge), spurs + gullies, 120-380 m."""
+    p = Vector((x / 650, y / 650, 0.7))
+    r = noise.ridged_multi_fractal(p, 0.9, 2.1, 6, 1.0, 2.0) / 2.2              # ~0..1, sharp ridgelines
+    env = 0.55 + 0.45 * noise.noise(Vector((x / 1400, y / 1100, 0.2)))          # peaks vs saddles along the range
+    d = min(1.0, max(0.0, (y - 1300) / 700))
+    ramp = d * d * (3 - 2 * d)
+    return QZ - 2 + ramp * (60 + 330 * env * (0.35 + 0.65 * max(0.0, r))) + 12 * fbm(x, y, 120, 5) * ramp
+
+
+_bm = bmesh.new()
+_nx, _ny, _x0, _x1, _y0, _y1 = 300, 120, -1800, 2800, 1250, 2900
+_vs = [[_bm.verts.new((_x0 + (_x1 - _x0) * i / _nx, _y0 + (_y1 - _y0) * j / _ny, 0)) for j in range(_ny + 1)]
+       for i in range(_nx + 1)]
+for _row in _vs:
+    for _v in _row:
+        _v.co.z = hills_h(_v.co.x, _v.co.y)
+for i in range(_nx):
+    for j in range(_ny):
+        _bm.faces.new((_vs[i][j], _vs[i + 1][j], _vs[i + 1][j + 1], _vs[i][j + 1]))
+RIDGE = sklib._mesh_obj('A-ENV-HILLS-N', _bm, C['ENV'])
+RIDGE.data.shade_smooth()
+RIDGE.data.materials.append(hazed(hill_mat(), dist=9000.0, color=(0.50, 0.60, 0.74), strength=1.0))
+RIDGE.visible_shadow = True
 
 
 def tree_coll():
@@ -728,12 +800,31 @@ def vessel(name, L, B, D, T, hull_mat, sup_mat, coll):
     bm, Dz = hull_bm(L, B, D, T, L * 0.36, L * 0.15, sheer=0.8, Rb=1.0, nst=40)
     ob = mk(name, bm, (hull_mat, M['af'], M['deck']), coll, 0, angle=40)
     bm = bmesh.new()
-    bbox(bm, Vector((0, L * 0.05, D + 1.2)), (B * 0.62, L * 0.32, 2.4), 0)
-    bbox(bm, Vector((0, -L * 0.02, D + 3.4)), (B * 0.55, L * 0.16, 2.0), 0)
-    bbox(bm, Vector((0, -L * 0.02 - L * 0.08, D + 3.6)), (B * 0.5, 0.08, 1.0), 1)
+
+
+    tbox(bm, Vector((0, L * 0.06, D + 1.2)), (B * 0.66, L * 0.34, 2.4), 0.92, 0.5)                 # main deckhouse
+    tbox(bm, Vector((0, -L * 0.03, D + 3.45)), (B * 0.58, L * 0.17, 2.1), 0.86, 0.45)              # wheelhouse, raked front
+    bbox(bm, Vector((0, -L * 0.03, D + 4.6)), (B * 0.66, L * 0.2, 0.18), 0)                    # roof overhang (visor)
+    bbox(bm, Vector((0, -L * 0.03 - L * 0.085 + 0.25, D + 3.65)), (B * 0.5, 0.06, 0.95), 1)     # window band
     for sx in (-1, 1):
-        bbox(bm, Vector((sx * B * 0.275, -L * 0.02, D + 3.6)), (0.08, L * 0.12, 0.9), 1)
-    bcyl(bm, Vector((0, L * 0.1, D + 5.6)), 0.12, 3.5, 'Z', 8, 2)
+        bbox(bm, Vector((sx * B * 0.255, -L * 0.03, D + 3.65)), (0.06, L * 0.12, 0.85), 1)
+        for k in range(3):                                                                    # deckhouse portholes
+            bcyl(bm, Vector((sx * B * 0.33, L * (-0.04 + 0.09 * k), D + 1.5)), 0.22, 0.08, 'X', 12, 1)
+        bcyl(bm, Vector((sx * 1.1, L * 0.14, D + 3.4)), 0.38, 2.6, 'Z', 14, 2)                  # twin exhaust stacks
+        bbox(bm, Vector((sx * 1.1, L * 0.14, D + 4.75)), (0.9, 0.9, 0.12), 3)
+    bcyl(bm, Vector((0, L * 0.02, D + 6.2)), 0.12, 3.4, 'Z', 8, 2)                             # mast + radar + yard
+    bbox(bm, Vector((0, L * 0.02, D + 6.5)), (2.2, 0.12, 0.12), 2)
+    bbox(bm, Vector((0, L * 0.02, D + 5.0)), (1.6, 0.3, 0.1), 3)
+    bcyl(bm, Vector((0, L * 0.3, D + 0.6)), 0.7, 1.6, 'X', 16, 3)                              # towing winch drum
+    for sx in (-1, 1):
+        bcyl(bm, Vector((sx * 0.9, L * 0.4, D + 0.55)), 0.2, 1.1, 'Z', 10, 3)                  # H-bitt
+    bbox(bm, Vector((0, L * 0.4, D + 0.9)), (1.8, 0.2, 0.2), 3)
+    for side in (-1, 1):                                                                      # bulwark along the deck edge
+        ys = [-L / 2 + 0.6 + k * (L - 1.2) / 24 for k in range(25)]
+        pts = [(side * (hull_halfbeam(y, D, L, B, D, T, L * 0.36, L * 0.15) - 0.08), y) for y in ys]
+        pts = [p for p in pts if abs(p[0]) > 0.3]
+        for a_, b_ in zip(pts, pts[1:]):
+            obox(bm, (a_[0], a_[1], D + 0.5), (b_[0], b_[1], D + 0.5), 0.12, 1.0, 4)
     for k in range(int(L / 2.2)):             # tyre fenders along the sides
         y = -L / 2 + 3 + k * 2.2
         if y > L / 2 - 2:
@@ -742,14 +833,14 @@ def vessel(name, L, B, D, T, hull_mat, sup_mat, coll):
         for sx in (-1, 1):
             bcyl(bm, Vector((sx * (hb + 0.2), y, D - 0.7)), 0.45, 0.3, 'X', 12, 3)
     bcyl(bm, Vector((0, -L / 2 + 0.2, D - 0.2)), 0.9, B * 0.5, 'X', 14, 3)       # bow pudding fender
-    sup = mk(name + '.sup', bm, (sup_mat, M['glass'], M['galv'], M['rubber']), coll, 0.03)
+    sup = mk(name + '.sup', bm, (sup_mat, M['glass'], M['galv'], M['rubber'], hull_mat), coll, 0.07, 2, 40)
     sup.parent = ob
     return ob
 
 
 TUGS = []
-for k, (pos, rz, anim) in enumerate((((SX - hull_halfbeam(-58, 3.4, SL, SB, SD, ST, 32, 14) - 13.85, -58.0, 0), math.pi / 2, 0.15),
-                                     ((SX - hull_halfbeam(-30, 3.4, SL, SB, SD, ST, 32, 14) - 13.85, -30.0, 0), math.pi / 2, 0.12))):
+for k, (pos, rz, anim) in enumerate((((SX - hull_halfbeam(-16, 3.4, SL, SB, SD, ST, 32, 14) - 13.85, -16.0, 0), math.pi / 2, 0.15),
+                                     ((SX - hull_halfbeam(16, 3.4, SL, SB, SD, ST, 32, 14) - 13.85, 16.0, 0), math.pi / 2, 0.12))):
     t = vessel('A-VESSEL-TUG.%d' % (k + 1), 26.0, 9.6, 3.6, 3.4, M['black'], M['white'], C['SHIP'])
     t.rotation_euler.z = rz
     t.location = pos
@@ -806,6 +897,7 @@ def crane_static():
     if c.objects:
         return c
     bm = bmesh.new()
+    bmd = bmesh.new()      # diagonal members (A-frame, stays, portal braces): no shadow -> no stripes over the boxes
     for x in (LEG_S, LEG_L):
         for sy in (-1, 1):
             y = sy * HALF
@@ -818,7 +910,7 @@ def crane_static():
         y = sy * HALF
         bbox(bm, Vector(((LEG_S + LEG_L) / 2, y, 16.5)), (LEG_L - LEG_S, 1.3, 1.8), 0)         # sill beams
         bbox(bm, Vector(((LEG_S + LEG_L) / 2, y, ZP - 1.1)), (LEG_L - LEG_S + 1.7, 1.8, 2.2), 0)   # upper portal
-        obox(bm, (LEG_S, y, ZP - 2.2), (LEG_L, y, 17.4), 0.7, 0.9, 0)                          # diagonal brace
+        obox(bmd, (LEG_S, y, ZP - 2.2), (LEG_L, y, 17.4), 0.7, 0.9, 0)                         # diagonal brace
     for x in (LEG_S, LEG_L):
         bbox(bm, Vector((x, 0, ZP - 1.1)), (1.8, 2 * HALF + 1.7, 2.2), 0)                      # portal cross beams
     bbox(bm, Vector((LEG_L, 0, 16.5)), (1.2, 2 * HALF, 1.6), 0)
@@ -830,11 +922,11 @@ def crane_static():
             bbox(bm, Vector((xx, sy * 5.18, ZG - 1.2)), (0.04, 0.04, 1.1), 1)
         bbox(bm, Vector(((-47 + 66) / 2, sy * 5.18, ZG - 0.65)), (113, 0.04, 0.04), 1)
         # A-frame legs, forestays, backstays
-        obox(bm, (LEG_S, sy * 7.0, ZG), (APEX[0], sy * 5.0, APEX[1]), 1.2, 1.2, 0)
-        obox(bm, (LEG_L, sy * 7.0, ZG), (APEX[0], sy * 5.0, APEX[1]), 1.2, 1.2, 0)
+        obox(bmd, (LEG_S, sy * 7.0, ZG), (APEX[0], sy * 5.0, APEX[1]), 1.2, 1.2, 0)
+        obox(bmd, (LEG_L, sy * 7.0, ZG), (APEX[0], sy * 5.0, APEX[1]), 1.2, 1.2, 0)
         for xb in (-12.0, -44.0):
-            obox(bm, (APEX[0], sy * 5.0, APEX[1]), (xb, sy * 5.25, ZG - 0.2), 0.45, 0.45, 0)
-        obox(bm, (APEX[0], sy * 5.0, APEX[1]), (64.0, sy * 5.25, ZG - 0.2), 0.55, 0.55, 0)
+            obox(bmd, (APEX[0], sy * 5.0, APEX[1]), (xb, sy * 5.25, ZG - 0.2), 0.45, 0.45, 0)
+        obox(bmd, (APEX[0], sy * 5.0, APEX[1]), (64.0, sy * 5.25, ZG - 0.2), 0.55, 0.55, 0)
         bbox(bm, Vector((LEG_S, sy * 6.6, ZG - 0.6)), (1.6, 3.2, 1.6), 0)
         bbox(bm, Vector((LEG_L, sy * 6.6, ZG - 0.6)), (1.6, 3.2, 1.6), 0)
     for xx in (-44, -20, 4, 30, 56):
@@ -858,8 +950,18 @@ def crane_static():
     for sy in (-1, 1):
         bbox(bm, Vector((-46.0, sy * 3.0, ZG - 3.6)), (0.5, 0.8, 0.4), 5)
     bbox(bm, Vector((22.0, -5.6, ZG - 3.4)), (86.0, 0.2, 0.2), 1)
-    ob = mk('A-PORT-STS.mesh', bm, (M['crane'], M['galv'], M['black'], M['galv'], M['crane_l'], M['lamp']), c, 0.06, 2, 40)
+    # everything above the portal (girders, walkways, rails, boom, machinery house) casts no sun shadow: its shadow
+    # landed as parallel stripes across the ship's boxes; legs, sills and bogies keep theirs (grounding)
+    hi = bm.copy()
+    bmesh.ops.delete(hi, geom=[f for f in hi.faces if f.calc_center_median().z <= 38.0], context='FACES')
+    bmesh.ops.delete(bm, geom=[f for f in bm.faces if f.calc_center_median().z > 38.0], context='FACES')
+    mats_ = (M['crane'], M['galv'], M['black'], M['galv'], M['crane_l'], M['lamp'])
+    ob = mk('A-PORT-STS.mesh', bm, mats_, c, 0.06, 2, 40)
     sklib.apply_mods(ob)
+    for nm_, b_ in (('A-PORT-STS.high', hi), ('A-PORT-STS.diag', bmd)):
+        od = mk(nm_, b_, mats_, c, 0.06, 2, 40)
+        sklib.apply_mods(od)
+        od.visible_shadow = False
     # festoon cable loops (static, parked on the land side of the track)
     loops = []
     for k in range(9):
@@ -1124,11 +1226,15 @@ def truck_cab(coll):
     """Indian tipper-style tractor cab (Tata/Ashok Leyland-like proportions, no badges), front -X."""
     bm = bmesh.new()
     bbox(bm, Vector((0, 0, 0.75)), (6.2, 1.0, 0.32), 2)                            # frame
-    bbox(bm, Vector((-2.0, 0, 2.3)), (2.0, 2.45, 2.2), 0)                          # cab box
-    bbox(bm, Vector((-2.15, 0, 3.55)), (1.7, 2.3, 0.35), 0)                        # roof cap
-    bbox(bm, Vector((-3.02, 0, 2.75)), (0.05, 2.15, 1.05), 1)                      # windscreen
+    tbox(bm, Vector((-2.0, 0, 1.75)), (2.0, 2.45, 1.1), 1.0, 0.0, 0, 0)               # cab lower (doors)
+    tbox(bm, Vector((-1.95, 0, 2.85)), (1.9, 2.45, 1.1), 0.94, 0.28, 0, 0)            # cab upper, raked windscreen
+    tbox(bm, Vector((-1.95, 0, 3.55)), (1.75, 2.3, 0.3), 0.9, 0.08, 0, 0)             # rounded roof cap
+    bbox(bm, Vector((-2.77, 0, 3.32)), (0.35, 2.2, 0.06), 2)                          # sun visor
+    obox(bm, (-2.93, 0, 2.38), (-2.67, 0, 3.24), 2.12, 0.04, 1)                       # windscreen glass (raked)
     for sy in (-1, 1):
-        bbox(bm, Vector((-2.2, sy * 1.235, 2.75)), (1.1, 0.04, 0.85), 1)           # side windows
+        bbox(bm, Vector((-2.05, sy * 1.2, 2.85)), (1.15, 0.04, 0.8), 1)            # side windows
+        bbox(bm, Vector((-1.3, sy * 1.15, 0.85)), (0.9, 0.5, 0.5), 2)              # fuel tank / battery box
+        bbox(bm, Vector((-2.3, sy * 1.3, 0.95)), (0.5, 0.25, 0.06), 2)             # step
         bbox(bm, Vector((-3.25, sy * 1.45, 2.6)), (0.08, 0.06, 0.55), 2)           # mirrors
         bbox(bm, Vector((-3.03, sy * 0.85, 1.55)), (0.05, 0.4, 0.22), 4)           # headlamps
     bbox(bm, Vector((-3.03, 0, 1.7)), (0.05, 1.1, 0.6), 2)                         # grille
@@ -1138,7 +1244,7 @@ def truck_cab(coll):
     for x in (-2.1, 0.9, 2.3):
         for sy in (-1, 1):
             wheel(bm, Vector((x, sy * 1.0, 0.52)), 0.52, 0.32 if x < 0 else 0.6, 5, 2)
-    return mk('A-TRUCK-REEFER.cab', bm, (M['cab'], M['glass'], M['black'], M['cabstripe'], M['lamp'], M['rubber']), coll, 0.04)
+    return mk('A-TRUCK-REEFER.cab', bm, (M['cab'], M['glass'], M['black'], M['cabstripe'], M['lamp'], M['rubber']), coll, 0.09, 3, 40)
 
 
 TRUCK_Y, TRUCK_X = 18.0, 46.0          # reefer centre; doors at +X
@@ -1280,7 +1386,24 @@ for f, loc, aim, lens in AIMS:
     KEYS.append((f, loc, e, lens))
 sklib.camera_path(cam, KEYS)
 log('camera')
+# motion blur shutter keyed to camera speed: fast pans/flights stay readable (<= ~0.35 deg of smear per frame)
+_prev = None
+for f in range(1, F_END + 1):
+    s.frame_set(f)
+    m_ = cam.matrix_world
+    d_, p_ = -m_.col[2].xyz.normalized(), m_.translation.copy()
+    if _prev:
+        sp_ = math.degrees(d_.angle(_prev[0])) + math.degrees(math.atan((p_ - _prev[1]).length / 40.0))
+        s.render.motion_blur_shutter = max(0.06, min(0.5, 0.35 / max(sp_, 1e-3)))
+        s.keyframe_insert('render.motion_blur_shutter', frame=f)
+    _prev = (d_, p_)
+s.frame_set(1)
 
 s.render.use_simplify = False
 sklib.finish('port', 'ext')
+# perf: 32 spp is clean on this daylight exterior (A/B f205: 64 spp ~17-22 s vs 32 ~15-20 s on the shared GPU)
+s.eevee.taa_render_samples = 32
+# ART (issue #75, COLOR_SCRIPT row 02): dusk harbour light, world, sea, sodium practicals, materials, grade
+exec(compile(open(__file__.replace('port.py', 'port_art.py')).read(), 'port_art.py', 'exec'))
+bpy.ops.wm.save_as_mainfile(filepath=bpy.data.filepath, relative_remap=True, compress=True)
 log('DONE containers', NCONT, 'vehicles', NVEH, 'people', NPEOPLE)

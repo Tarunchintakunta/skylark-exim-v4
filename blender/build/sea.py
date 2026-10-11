@@ -24,6 +24,7 @@ from mathutils import Euler, Matrix, Vector
 REPO = '/Users/tarunchintakunta/Desktop/2.0/skylark-exim-v4'
 sys.path.insert(0, REPO + '/assets-src/blender/lib')
 import sklib  # noqa: E402
+import look  # noqa: E402  (issue #75 art pass: COLOR_SCRIPT row 12)
 from sklib import _n, _l, _math, _mix, _maprange, _noise, _vscale, _img, _dirt_mask, D2R  # noqa: E402
 
 sklib.reset()
@@ -397,7 +398,7 @@ def cyl(name, c, r, h, mat, coll, parent, axis='Z', seg=24, r2=None, bev=0.01):
 
 
 def build_superstructure(coll, root, name='A-VESSEL-FISHING-A'):
-    white = sklib.painted_metal((0.80, 0.80, 0.76), wear=0.45, streaks=0.45)
+    white = sklib.painted_metal((0.72, 0.69, 0.62), wear=0.5, streaks=0.55)    # art pass: weathered warm white, not paper-white
     blue = sklib.painted_metal((0.03, 0.17, 0.45), wear=0.5, streaks=0.3)
     red = sklib.painted_metal((0.50, 0.05, 0.035), wear=0.55, streaks=0.4)
     yel = sklib.painted_metal((0.75, 0.55, 0.12), wear=0.55, streaks=0.5)
@@ -721,11 +722,82 @@ for f, el in ((1, SUN0), (264, SUN1)):
     sun.rotation_euler = d.to_track_quat('Z', 'Y').to_euler()
     sun.keyframe_insert('rotation_euler', frame=f)
 sun.data.angle = 0.6 * D2R
+look.light(sun, '#ffb070')                     # art pass: key = dawn sun #ffb070 (COLOR_SCRIPT row 12)
+
+# ---- art pass: cool sky fill from the west (camera side) + warm rim on crew, net and wheelhouse from the sun side
+FILL_E, RIM_E = 3.0, 3600.0      # r5: brighter teal fill so shadows are not darker than the pre-art frames
+_fd = Vector((math.sin(275 * D2R) * math.cos(35 * D2R), math.cos(275 * D2R) * math.cos(35 * D2R), math.sin(35 * D2R)))
+look.add_light(S, 'SK_Fill', 'SUN', '#4f8fa8', FILL_E, (0, 0, 20), _fd.to_track_quat('Z', 'Y').to_euler(), shadow=False)
+_rim = look.add_light(S, 'SK_Rim', 'AREA', '#ffcf8a', RIM_E, (BOAT_XY.x + 13, BOAT_XY.y + 3, 7.5), size=5.0)
+_rim.rotation_euler = (Vector((BOAT_XY.x, BOAT_XY.y + 3, 2.0)) - _rim.location).to_track_quat('-Z', 'Y').to_euler()
+_rim.data.specular_factor = 0.0                # r1: its specular showed as a bright rectangle in the sea
+
+# ---- art r7 (lead review): deck close-ups f150-245 went cyan (skin, fish, ice). Warm key bounce from the sunrise side
+# onto deck + crew, keyed in and out with linear ramps (f140->160, f240->255), cool fill lowered over the same range.
+DECK_E, FILL_DECK = 2.6, 1.3
+_dfd = Vector((math.sin(100 * D2R) * math.cos(32 * D2R), math.cos(100 * D2R) * math.cos(32 * D2R), math.sin(32 * D2R)))
+_deck = look.add_light(S, 'SK_DeckKey', 'SUN', '#ffcf8a', 0.0, (0, 0, 22), _dfd.to_track_quat('Z', 'Y').to_euler())
+_deck.data.specular_factor = 0.0               # no second sun glint in the sea
+_deck.data.angle = 8 * D2R                     # soft bounce, soft shadows
+_fill = S.objects['SK_Fill']
+for f_, de, fe in ((140, 0.0, FILL_E), (160, DECK_E, FILL_DECK), (240, DECK_E, FILL_DECK), (255, 0.0, FILL_E)):
+    _deck.data.energy, _fill.data.energy = de, fe
+    _deck.data.keyframe_insert('energy', frame=f_)
+    _fill.data.keyframe_insert('energy', frame=f_)
+for ld in (_deck.data, _fill.data):
+    for fc in ld.animation_data.action.fcurves if hasattr(ld.animation_data.action, 'fcurves') else []:
+        for kp in fc.keyframe_points:
+            kp.interpolation = 'LINEAR'
+
+# ---- art pass: sea mist #f0c9a0 0.0006 (COLOR_SCRIPT row 12) in a bounded box, so the sky stays visible behind it
+MIST_D = 0.0006
+bpy.ops.mesh.primitive_cube_add(size=1.0, location=(0, 0, 40))
+mist = bpy.context.active_object
+mist.name = 'SK_MIST'
+mist.scale = (1200, 1200, 60)
+for c_ in list(mist.users_collection):
+    c_.objects.unlink(mist)
+col_env.objects.link(mist)
+mm, mnt = bpy.data.materials.new('SK_MIST'), None
+mm.use_nodes = True
+mnt = mm.node_tree
+mnt.nodes.remove(mnt.nodes['Principled BSDF'])
+mv = mnt.nodes.new('ShaderNodeVolumePrincipled')
+mv.inputs['Color'].default_value = (*look.hex_rgb('#f0c9a0'), 1)
+mv.inputs['Density'].default_value = MIST_D
+mv.inputs['Anisotropy'].default_value = 0.4
+mnt.links.new(mv.outputs['Volume'], mnt.nodes['Material Output'].inputs['Volume'])
+mist.data.materials.append(mm)
+mist.visible_shadow = False
+
+# ---- art pass: tint the physical sky toward the row's dawn gradient (horizon #ffbf7a -> zenith #24496b)
+HOR_TINT, ZEN_TINT, TINT_MIX = '#ffbf7a', '#24496b', 0.85
+
+
+def _norm_tint(h, gain=1.0, mix=TINT_MIX):
+    c = look.hex_rgb(h)
+    m = max(c)
+    return tuple(1 - mix + mix * gain * x / m for x in c) + (1,)
+
+
+wnt = world.node_tree
+w_bg = next(n for n in wnt.nodes if n.bl_idname == 'ShaderNodeBackground')
+w_tc = _n(wnt, 'ShaderNodeTexCoord', -900, -300)
+w_sep = _n(wnt, 'ShaderNodeSeparateXYZ', -700, -300)
+_l(wnt, w_tc.outputs['Generated'], w_sep.inputs[0])
+w_t = _maprange(wnt, w_sep.outputs['Z'], 0.0, 0.24, 0.0, 1.0, -500, -300)
+w_grad = _mix(wnt, w_t, _norm_tint(HOR_TINT), _norm_tint(ZEN_TINT, 0.45), 'MIX', -300, -300)
+w_mul = _n(wnt, 'ShaderNodeMix', -100, -100)
+w_mul.data_type, w_mul.blend_type = 'RGBA', 'MULTIPLY'
+w_mul.inputs[0].default_value = 1.0
+_l(wnt, sky.outputs[0], [x for x in w_mul.inputs if x.name == 'A' and x.type == 'RGBA'][0])
+_l(wnt, w_grad, [x for x in w_mul.inputs if x.name == 'B' and x.type == 'RGBA'][0])
+_l(wnt, [x for x in w_mul.outputs if x.type == 'RGBA'][0], w_bg.inputs['Color'])
 
 # ---- sea (seed 41, calm swell), t=0 at f1; flat far-sea skirt with the same shader to the horizon
 OC = 600.0
 sea = sklib.ocean(size=OC, seed=41, time=-1 / 24, choppy=0.9, wave_scale=0.55, wind=9.0, res=12, animate=True, foam=False,
-                  coll=col_env, deep=(0.010, 0.040, 0.050), shallow=(0.03, 0.12, 0.12))
+                  coll=col_env, deep=look.hex_rgb('#0f3d4a'), shallow=(0.03, 0.15, 0.16))   # art pass: deep teal body
 cx, cy = 0.0, 0.0
 sea.location = (cx - OC / 2, cy - OC / 2, 0)
 bm = bmesh.new()
@@ -774,6 +846,20 @@ land.visible_shadow = False
 BOAT = sklib.new_obj('BOAT', None, col_ship)
 hull, deck, caps = build_hull(col_ship, BOAT)
 sup = build_superstructure(col_ship, BOAT)
+# art pass: sunrise-orange life ring on the aft wheelhouse wall (COLOR_SCRIPT row 12 accent)
+bm = bmesh.new()
+NU, NV, RR, rr = 32, 10, 0.27, 0.075
+vs = [[bm.verts.new((rr * math.sin(b), (RR + rr * math.cos(b)) * math.cos(a), (RR + rr * math.cos(b)) * math.sin(a)))
+       for b in (2 * math.pi * j / NV for j in range(NV))] for a in (2 * math.pi * i / NU for i in range(NU))]
+for i in range(NU):
+    for j in range(NV):
+        bm.faces.new((vs[i][j], vs[(i + 1) % NU][j], vs[(i + 1) % NU][(j + 1) % NV], vs[i][(j + 1) % NV]))
+lifering = obj_from_bm('A-VESSEL-FISHING-A-LIFERING', bm, sklib.plastic((1.0, 0.19, 0.045), 0.35, name='sea_lifering'),
+                       col_ship, BOAT)
+lifering.location = (-0.45, 1.8 - rr - 0.01, deck_z(1.8) + 1.5)   # aft wheelhouse wall beside the door (seen f210-264)
+lifering.rotation_euler = (0, 0, math.pi / 2)
+for p_ in lifering.data.polygons:
+    p_.use_smooth = True
 
 # ---- catch: crates on crushed ice (aft deck, starboard), tuna tub
 load_scans()
@@ -1070,6 +1156,22 @@ S.frame_set(1)
 S.eevee.use_raytracing = True
 path = sklib.finish('sea', 'dawn')
 S.render.motion_blur_shutter = 0.3
+S.eevee.ray_tracing_options.screen_trace_thickness = 0.5   # full-r1: 0.1 let off-screen tyre undersides reflect as white sky rings in the sea
+# ---- art pass (issue #75, COLOR_SCRIPT row 12): sea mist + view look + grade (after finish, which resets them)
+# look.apply's world-volume fog absorbs the whole sky in EEVEE (r1: black sky, no sun), so the sea mist #f0c9a0 is a
+# bounded volume box over the near sea instead (SK_MIST, below), and only view + grade come from look here.
+look.view(S, 'AgX - Medium High Contrast', exposure=0.25)
+# COLOR_SCRIPT §3: complementary grade, deep-teal lift (cool) vs dawn-gold gain (key); lift 0.025, gain 0.03
+look.grade(S, lift='#0f3d4a', gain='#ffb070', sat=1.12, vignette=0.10, lift_amt=0.025, gain_amt=0.03)
+# art r7 (lead review): the deck close-ups f150-245 went cyan. A test with the compositor off showed warm skin/ice/wood, so
+# the cast is the teal lift, not the light: key the lift strength 0.025 -> 0.008 over the deck range (same ramps as the deck key).
+_cb = next(n for n in S.compositing_node_group.nodes if n.bl_idname == 'CompositorNodeColorBalance')
+_lift = next(x for x in _cb.inputs if x.name == 'Lift' and x.type == 'RGBA')
+for f_, amt in ((140, 0.025), (160, 0.008), (240, 0.008), (255, 0.025)):
+    _lift.default_value = (*look._tint('#0f3d4a', amt * 10), 1)
+    _lift.keyframe_insert('default_value', frame=f_)
+S.eevee.volumetric_tile_size, S.eevee.volumetric_samples, S.eevee.volumetric_end = '16', 16, 2500.0
+S.eevee.taa_render_samples = 32
 S.frame_start, S.frame_end = 1, 264
 bpy.ops.wm.save_mainfile()
 print('SEA_BUILD_DONE', path)

@@ -35,6 +35,6 @@ elif [ "$mode" = full ]; then
   out="assets-src/render/$dir"; mkdir -p "$out"
   ow=False; [ "${FORCE:-0}" = 1 ] && ow=True
   py="import bpy; s=bpy.context.scene; s.render.use_overwrite=$ow; s.render.filepath='$PWD/$out/'"
-  run "${keep[@]}" "$BLENDER" --factory-startup -b "$file" --python-expr "$py" -s "$F" -e "$L" -a
+  run "${keep[@]}" "$BLENDER" --factory-startup -b "$file" --python-expr "$py" --threads "${THREADS:-7}" -s "$F" -e "$L" -a
   [ "${DRY:-0}" = 1 ] || echo "full render $b frames $F-$L done in $(( ($(date +%s)-start)/60 )) min -> $out"
 else echo "mode must be preview or full"; exit 1; fi

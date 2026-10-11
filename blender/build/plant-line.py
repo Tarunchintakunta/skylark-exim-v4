@@ -22,6 +22,7 @@ from mathutils import Euler, Matrix, Vector
 REPO = '/Users/tarunchintakunta/Desktop/2.0/skylark-exim-v4'
 sys.path.insert(0, REPO + '/assets-src/blender/lib')
 import sklib  # noqa: E402
+import look  # noqa: E402  (art pass, issue #75)
 from sklib import _bm_box, _bm_cyl, D2R  # noqa: E402
 
 ARGS = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
@@ -33,12 +34,20 @@ TAG = ARGS[ARGS.index('--tag') + 1] if '--tag' in ARGS else 'r1'
 scene = sklib.reset()
 import people  # noqa: E402  (after reset: re-enables MPFB)
 
-# lab_coat in people.py has no hairnet/mask/gloves; the brief wants them -> runtime patch of _outfit (lib untouched)
+# lab_coat in people.py = street trousers + shoes (read as jeans + orange shoes). The QC technician wears full plant PPE:
+# white trousers, white gumboots, white coat to the knee, hairnet, mask, gloves (= ppe_plant minus the apron).
+# Runtime patch of _outfit (lib untouched).
 _src = inspect.getsource(people._outfit)
-_old = "            coat((0.82, 0.82, 0.8), 'lab_coat', length=knee + 0.02)\n"
-assert _old in _src
-exec(compile(_src.replace(_old, _old + "            gloves((0.25, 0.42, 0.75)); headcover((0.84, 0.84, 0.84), 'hairnet', 'net', 0.018)"
-                                         "; mask((0.55, 0.7, 0.8))\n"), people.__file__, 'exec'), people.__dict__)
+_a = "    if outfit == 'ppe_plant':\n"
+_b = "        coat((0.8, 0.8, 0.78), 'coat', length=knee - 0.02, apron=True)\n"
+assert _a in _src and _b in _src
+_src = _src.replace(_a, "    if outfit in ('ppe_plant', 'lab_coat'):\n").replace(
+    _b, _b + "        if outfit == 'lab_coat':\n"
+             "            gloves((0.25, 0.42, 0.75)); headcover((0.84, 0.84, 0.84), 'hairnet', 'net', 0.018); mask((0.55, 0.7, 0.8))\n"
+             "            return mpfb, modelled\n")
+exec(compile(_src, people.__file__, 'exec'), people.__dict__)
+_items0 = people._mpfb_items
+people._mpfb_items = lambda outfit, sex, rng: _items0('ppe_plant' if outfit == 'lab_coat' else outfit, sex, rng)
 
 RNG = random.Random(8)
 F_END = 765
@@ -61,17 +70,19 @@ C_LIGHT = col('LIGHTS')
 
 # ------------------------------------------------------------------------------------------------------ materials
 M = {}
-M['wall'] = sklib.painted_metal((0.86, 0.87, 0.86), wear=0.06, contrast=0.22)       # PUF panel skin
-M['floor'] = sklib.epoxy_floor((0.60, 0.65, 0.63), wear=0.12)
+# art r1: cool blue-white PUF skin with grime + macro hue/value variation (was paper-white (0.68, 0.69, 0.68))
+M['wall'] = sklib.pbr('plant_wall_cool', 'blue_metal_plate', tint=(0.56, 0.64, 0.75), wear=0.24, wear_color=(0.20, 0.18, 0.14),
+                      rough=(0.32, 0.75), streaks=0.12, ao_dist=0.35, contrast=0.4, var=0.14)
+M['floor'] = sklib.epoxy_floor((0.30, 0.40, 0.47), wear=0.26)   # art r1: blue-grey epoxy
 M['ss'] = sklib.stainless(0.08)
 M['alu'] = sklib.aluminium(0.1)
 M['galv'] = sklib.galvanised(0.2)
-M['tile'] = sklib.white_tiles(0.08)
+M['tile'] = sklib.white_tiles(0.16)
 M['plaster'] = sklib.white_wall(0.04)
 M['rubber'] = sklib.plastic((0.025, 0.025, 0.025), 0.2, name='rubber_black')
-M['tray'] = sklib.pbr('plastic_white_clean', 'blue_metal_plate', tint=(0.86, 0.87, 0.87), wear=0.04, rough=(0.35, 0.5), nor=0.12,
+M['tray'] = sklib.pbr('plastic_white_clean', 'blue_metal_plate', tint=(0.68, 0.73, 0.79), wear=0.08, rough=(0.35, 0.5), nor=0.12,
                       wear_color=(0.5, 0.5, 0.48), ao_dist=0.08, var=0.03, scale=0.6, contrast=0.2)
-M['laminate'] = sklib.pbr('bench_laminate', 'blue_metal_plate', tint=(0.84, 0.85, 0.84), wear=0.03, rough=(0.25, 0.4), nor=0.08,
+M['laminate'] = sklib.pbr('bench_laminate', 'blue_metal_plate', tint=(0.70, 0.71, 0.70), wear=0.06, rough=(0.25, 0.4), nor=0.08,
                           wear_color=(0.5, 0.5, 0.48), ao_dist=0.05, var=0.02, scale=0.8, contrast=0.15)
 M['grey_pl'] = sklib.plastic((0.30, 0.33, 0.35), 0.15, name='plastic_grey')
 M['yellow'] = sklib.painted_metal((0.62, 0.45, 0.06), wear=0.25, contrast=0.5)
@@ -113,7 +124,7 @@ def emit_mat(name, color, strength):
 
 
 M['glass'] = glass_mat()
-M['led'] = emit_mat('led_panel', LED_K, 18.0)
+M['led'] = emit_mat('led_panel', LED_K, 9.0)
 M['screen'] = sklib.flat('screen_dim', (0.02, 0.035, 0.03), rough=0.15, var=0.02, scale=200, **{'Coat Weight': 1.0})
 M['red_lens'] = sklib.flat('lens_red', (0.35, 0.01, 0.01), rough=0.15, var=0.05, scale=80)
 
@@ -160,58 +171,53 @@ M['water'] = water_mat()
 
 
 def belt_mat():
-    """Stainless flat-wire mesh belt: cross rods + zig-zag links over dark gaps; UV-offset animated (belt runs -X)."""
+    """r5: port of plant-cold.py belt_mat (balanced-weave mesh, holes cut by alpha over a dark slider bed) so the
+    BRIDGE_BELT join is the same belt. Pattern phase matched: plant-cold's camera point is belt-UV (-0.55, 0) at
+    f574 with mapping 0; ours is (-1.2, 0) at f1 -> mapping x = 0.65 + (f-1)*v/24 (texture runs -X at BELT_V)."""
     m = bpy.data.materials.get('belt_mesh')
     if m:
         return m
-    m = bpy.data.materials.new('belt_mesh')
-    m.use_nodes = True
-    nt = m.node_tree
-    b = nt.nodes['Principled BSDF']
-    N, L = nt.nodes, nt.links
-    tc = N.new('ShaderNodeTexCoord')
-    mp = N.new('ShaderNodeMapping')
-    L.new(tc.outputs['Object'], mp.inputs['Vector'])
+    m, nt = sklib._new_mat('belt_mesh')
+    out = sklib._n(nt, 'ShaderNodeOutputMaterial', 1200, 0)
+    m.surface_render_method = 'DITHERED'
+    b = sklib._n(nt, 'ShaderNodeBsdfPrincipled', 900, 0)
+    sklib._l(nt, b.outputs[0], out.inputs['Surface'])
+    tc = sklib._n(nt, 'ShaderNodeTexCoord', -1400, 0)
+    mp = sklib._n(nt, 'ShaderNodeMapping', -1200, 0)
+    sklib._l(nt, tc.outputs['UV'], mp.inputs['Vector'])
     loc = mp.inputs['Location']
-    loc.default_value = (0, 0, 0)
-    loc.keyframe_insert('default_value', frame=1)
-    loc.default_value = (BELT_V * (F_END - 1) / 24, 0, 0)      # pattern moves with the shrimp (-X)
-    loc.keyframe_insert('default_value', frame=F_END)
-    sep = N.new('ShaderNodeSeparateXYZ')
-    L.new(mp.outputs[0], sep.inputs[0])
-    # rods across the belt every 12 mm (along X)
-    rx = N.new('ShaderNodeMath'); rx.operation = 'MULTIPLY'; rx.inputs[1].default_value = 2 * math.pi / 0.0075
-    L.new(sep.outputs['X'], rx.inputs[0])
-    # zig-zag: link wires every 9 mm across, shifted by rod phase
-    ly = N.new('ShaderNodeMath'); ly.operation = 'MULTIPLY'; ly.inputs[1].default_value = 2 * math.pi / 0.0125
-    L.new(sep.outputs['Y'], ly.inputs[0])
-    s1 = N.new('ShaderNodeMath'); s1.operation = 'COSINE'; L.new(rx.outputs[0], s1.inputs[0])
-    s2 = N.new('ShaderNodeMath'); s2.operation = 'COSINE'; L.new(ly.outputs[0], s2.inputs[0])
-    r1 = N.new('ShaderNodeMapRange'); L.new(s1.outputs[0], r1.inputs['Value'])
-    r1.inputs['From Min'].default_value, r1.inputs['From Max'].default_value = 0.2, 0.55
-    r2 = N.new('ShaderNodeMapRange'); L.new(s2.outputs[0], r2.inputs['Value'])
-    r2.inputs['From Min'].default_value, r2.inputs['From Max'].default_value = 0.72, 0.9
-    wire = N.new('ShaderNodeMath'); wire.operation = 'MAXIMUM'; wire.use_clamp = True
-    L.new(r1.outputs[0], wire.inputs[0]); L.new(r2.outputs[0], wire.inputs[1])
-    mix = N.new('ShaderNodeMix'); mix.data_type = 'RGBA'
-    L.new(wire.outputs[0], mix.inputs['Factor'])
-    mix.inputs['A'].default_value = (0.015, 0.017, 0.018, 1)
-    mix.inputs['B'].default_value = (0.5, 0.51, 0.52, 1)
-    L.new(mix.outputs['Result'], b.inputs['Base Color'])
-    mt = N.new('ShaderNodeMath'); mt.operation = 'MULTIPLY'; mt.inputs[1].default_value = 1.0
-    L.new(wire.outputs[0], mt.inputs[0]); L.new(mt.outputs[0], b.inputs['Metallic'])
-    rr = N.new('ShaderNodeMapRange'); L.new(wire.outputs[0], rr.inputs['Value'])
-    rr.inputs['To Min'].default_value, rr.inputs['To Max'].default_value = 0.6, 0.22
-    L.new(rr.outputs[0], b.inputs['Roughness'])
-    bp = N.new('ShaderNodeBump'); bp.inputs['Strength'].default_value = 0.5; bp.inputs['Distance'].default_value = 0.0012
-    L.new(wire.outputs[0], bp.inputs['Height']); L.new(bp.outputs[0], b.inputs['Normal'])
+    for f in (1, F_END):
+        loc.default_value = (0.65 + (f - 1) * (-BELT_V) / 24.0, 0, 0)
+        loc.keyframe_insert('default_value', frame=f)
+    sep = sklib._n(nt, 'ShaderNodeSeparateXYZ', -1000, 0)
+    sklib._l(nt, mp.outputs[0], sep.inputs[0])
+    u, v = sep.outputs[0], sep.outputs[1]
+    pitch, sp = 0.0127, 0.009
+    rod = sklib._math(nt, 'SINE', sklib._math(nt, 'MULTIPLY', u, 2 * math.pi / pitch, x=-800, y=200), x=-650, y=200)
+    rod = sklib._maprange(nt, sklib._math(nt, 'ABSOLUTE', rod, x=-500, y=200), 0.55, 0.85, 0.0, 1.0, -350, 200)
+    dg = sklib._math(nt, 'ADD', sklib._math(nt, 'MULTIPLY', v, 1.0 / sp, x=-800, y=-100),
+                     sklib._math(nt, 'MULTIPLY', u, 0.5 / pitch, x=-800, y=-250), x=-650, y=-150)
+    wr = sklib._math(nt, 'SINE', sklib._math(nt, 'MULTIPLY', dg, 2 * math.pi, x=-500, y=-150), x=-400, y=-150)
+    wr = sklib._maprange(nt, wr, 0.2, 0.75, 0.0, 1.0, -250, -150)
+    solid = sklib._math(nt, 'MAXIMUM', rod, wr, True, -100, 0)
+    sklib._l(nt, sklib._maprange(nt, solid, 0.25, 0.35, 0.0, 1.0, 100, 0), b.inputs['Alpha'])
+    nz = sklib._noise(nt, tc.outputs['Object'], 40.0, 4.0, 0.5, -300, -400)
+    sklib._l(nt, sklib._mix(nt, sklib._maprange(nt, nz.outputs['Fac'], 0.3, 0.7, 0, 1, 100, -400), (0.40, 0.41, 0.42),
+                            (0.48, 0.49, 0.50), 'MIX', 300, -300), b.inputs['Base Color'])
+    b.inputs['Metallic'].default_value = 1.0
+    b.inputs['Roughness'].default_value = 0.28
+    bp = sklib._n(nt, 'ShaderNodeBump', 600, -300)
+    bp.inputs['Strength'].default_value = 0.8
+    bp.inputs['Distance'].default_value = 0.0015
+    sklib._l(nt, solid, bp.inputs['Height'])
+    sklib._l(nt, bp.outputs[0], b.inputs['Normal'])
     for fc in sklib._fcurves(nt):
         for k in fc.keyframe_points:
             k.interpolation = 'LINEAR'
     return m
 
 
-BELT_V = -0.06      # m/s
+BELT_V = -0.10      # m/s (r5: = plant-cold infeed speed, continuous across the join)
 QC_Z = 0.93         # QC sampling shelf top
 M['belt'] = belt_mat()
 
@@ -629,12 +635,13 @@ def lights():
             for y in (-6.0, -2.0, 2.0, 6.0):
                 _bm_box(bm, Vector((x, y, H - 0.085)), (1.42, 0.16, 0.012))
     mk('led_diffusers', diff, [M['led']], c, bev=0)
-    for x in range(-5, 58, 6):
-        for y in (-4.0, 4.0):
-            area('L_hall_%d_%d' % (x, y), (x, y, H - 0.3), 5.5, 3.6, 560)
+    # r4: 22 battens-sized area lights -> 8 large ceiling area lights (the battens stay as shadowless emissive diffusers);
+    # with auto_vis() only the ones lighting the camera's view are enabled per frame
+    for x in (-3.5, 4.0, 11.5, 19.0, 26.5, 34.0, 41.5, 49.5):
+        area('L_hall_%d' % x, (x, 0.0, H - 0.3), 7.5, 13.0, 700)
     # lab ceiling lights
-    area('L_lab_a', (4.8, -4.2, 2.9), 1.2, 0.6, 150, C_LAB)
-    area('L_lab_b', (7.4, -4.2, 2.9), 1.2, 0.6, 150, C_LAB)
+    area('L_lab_a', (4.8, -4.2, 2.9), 1.2, 0.6, 85, C_LAB)
+    area('L_lab_b', (7.4, -4.2, 2.9), 1.2, 0.6, 85, C_LAB)
     # task light over the belt bridge (frame-filling BRIDGE_BELT)
     area('L_belt', (0, 0, 3.0), 2.0, 1.2, 70, C_BELT)
     # bounce fill for the dock end (exposure-matched daylight)
@@ -642,10 +649,95 @@ def lights():
 
 
 # ============================================================================================ BELT + QC
+def _pc_load_scan(fn, name):
+    """plant-cold.py load_scan (0.11 m long, lying on its side, origin centre bottom)."""
+    before = set(bpy.data.objects)
+    bpy.ops.import_scene.gltf(filepath=sklib.SRC + '/models/plant-cold/' + fn)
+    obs = [o for o in bpy.data.objects if o not in before]
+    ob = [o for o in obs if o.type == 'MESH'][0]
+    for o in obs:
+        if o is not ob:
+            bpy.data.objects.remove(o)
+    ob.name = name
+    ob.parent = None
+    img = [n.image for n in ob.material_slots[0].material.node_tree.nodes if n.type == 'TEX_IMAGE'][0]
+    s_ = 0.11 / max(ob.dimensions)
+    me = ob.data
+    me.transform(Matrix.Rotation(math.pi / 2, 4, 'X') @ Matrix.Diagonal((s_, s_, s_, 1)))
+    xs, ys, zs = ([v.co[i] for v in me.vertices] for i in range(3))
+    me.transform(Matrix.Translation((-(min(xs) + max(xs)) / 2, -(min(ys) + max(ys)) / 2, -min(zs))))
+    me.shade_smooth()
+    for cc in ob.users_collection:
+        cc.objects.unlink(ob)
+    return ob, img
+
+
+def _pc_raw_mat(name, img):
+    """plant-cold.py shrimp_mat(kind='raw')."""
+    m, nt = sklib._new_mat(name)
+    out = sklib._n(nt, 'ShaderNodeOutputMaterial', 900, 0)
+    b = sklib._n(nt, 'ShaderNodeBsdfPrincipled', 600, 0)
+    sklib._l(nt, b.outputs[0], out.inputs['Surface'])
+    ti = sklib._n(nt, 'ShaderNodeTexImage', -600, 100)
+    ti.image = img
+    colr = sklib._mix(nt, 0.3, ti.outputs['Color'], (0.55, 0.56, 0.55), 'MIX', -250, 100)
+    b.inputs['Subsurface Weight'].default_value = 0.55
+    b.inputs['Subsurface Radius'].default_value = (0.6, 0.5, 0.45)
+    b.inputs['Subsurface Scale'].default_value = 0.004
+    b.inputs['Roughness'].default_value = 0.3
+    b.inputs['Coat Weight'].default_value = 0.6
+    b.inputs['Coat Roughness'].default_value = 0.08
+    sklib._l(nt, colr, b.inputs['Base Color'])
+    return m
+
+
+C_PC_RAW = sklib.collection('SHRIMP_PC_RAW', False)
+for _fn, _nm in (('greasyback-shrimp-lo.glb', 'SCAN_greasyback'), ('green-tiger-prawn-lo.glb', 'SCAN_tiger')):
+    _ob, _img = _pc_load_scan(_fn, _nm)
+    _o2 = bpy.data.objects.new(_ob.name + '_raw', _ob.data.copy())
+    _o2.data.materials.clear()
+    _o2.data.materials.append(_pc_raw_mat('shrimp_pc_%s_raw' % _nm[5:], _img))
+    C_PC_RAW.objects.link(_o2)
+
+
+def pc_rows():
+    """plant-cold.py infeed rows, same RNG sequence: [(local x, y, yaw, scale, pick)]."""
+    L_IN = (-43.6) - (-49.5 - 0.6)
+    rng = random.Random(574)
+    out = []
+    x = 0.03
+    while x < L_IN - 0.05:
+        for k in range(9):
+            y = -0.5 + k * (1.0 / 8) + rng.uniform(-0.012, 0.012)
+            flip = rng.random() < 0.5
+            xx = x + rng.uniform(-0.008, 0.008)
+            yaw = (math.pi / 2 if flip else -math.pi / 2) + rng.uniform(-0.25, 0.25)
+            sc = rng.uniform(0.92, 1.08)
+            out.append((xx, y, yaw, sc, 0 if rng.random() < 0.6 else 1))
+        x += 0.12
+    return out
+
+
+def scatter_pc(name, items, coll, parent):
+    """Like scatter() but instancing the plant-cold raw scans (same Collection Info children order)."""
+    me = bpy.data.meshes.new(name)
+    me.vertices.add(len(items))
+    me.vertices.foreach_set('co', [c for it in items for c in it[:3]])
+    me.attributes.new('rot', 'FLOAT_VECTOR', 'POINT').data.foreach_set('vector', [c for it in items for c in it[3:6]])
+    me.attributes.new('scl', 'FLOAT', 'POINT').data.foreach_set('value', [it[6] for it in items])
+    me.attributes.new('pid', 'INT', 'POINT').data.foreach_set('value', [it[7] for it in items])
+    ob = sklib.new_obj(name, me, coll, parent=parent)
+    ob.modifiers.new('scatter', 'NODES').node_group = scatter_group(C_PC_RAW)
+    return ob
+
+
 def belt():
     c = C_BELT
     bx0, bx1, bw, bz = -8.4, 10.8, 1.2, 0.90
-    o = box('belt_surface', ((bx0 + bx1) / 2, 0, bz - 0.004), (bx1 - bx0, bw, 0.008), M['belt'], c, bev=0)
+    # r5: a single plane like plant-cold's belt (a box's mirrored bottom-face UV overlaid a second weave -> triangles)
+    hl, hw = (bx1 - bx0) / 2, bw / 2
+    o = mk('belt_surface', lambda bm: bm.faces.new([bm.verts.new(p_) for p_ in ((-hl, -hw, 0), (hl, -hw, 0), (hl, hw, 0), (-hl, hw, 0))]),
+           [M['belt']], c, loc=((bx0 + bx1) / 2, 0, bz), bev=0)
     # frame: side channels, legs, return rollers, side guards
     for s in (-1, 1):
         box('belt_side_%d' % s, ((bx0 + bx1) / 2, s * (bw / 2 + 0.04), bz - 0.05), (bx1 - bx0, 0.06, 0.14), M['ss'], C_GRADE)
@@ -666,18 +758,19 @@ def belt():
     for fc in sklib._fcurves(root):
         for k in fc.keyframe_points:
             k.interpolation = 'LINEAR'
-    rng = random.Random(41)
-    hi, lo = [], []
-    nrow = 12
-    for r in range(nrow):
-        y = -0.49 + r * (0.98 / (nrow - 1))
-        x = bx0 + rng.uniform(0, 0.05)
-        while x < bx1 + 2.6:
-            it = lying(x, y + rng.uniform(-0.012, 0.012), bz, 0, rng, yaw=(0 if r % 2 else math.pi), var=True)
-            (hi if -1.3 < x < 1.3 else lo).append(it)
-            x += rng.uniform(0.125, 0.15)
-    scatter('belt_shrimp_hi', hi, c, hi=True, parent=root)
-    scatter('belt_shrimp_lo', lo, C_GRADE, parent=root)
+    # r5: plant-cold's raw-shrimp rows, same scans/material/RNG, so the join frame continues exactly: their rows are
+    # Random(574), 9 across, every 0.12 m, lying ACROSS the belt, local x 0.03..6.45 wrapped every 6.5 m; their
+    # camera sits at local x 2.7 -> ours at x 0 on f1. Tiled over our belt (root scrolls at BELT_V).
+    rows = pc_rows()
+    pts = []
+    for k in range(-2, 4):
+        for (x, y, yaw, sc, pick) in rows:
+            wx = x - 2.7 + k * 6.5
+            if bx0 - 0.1 < wx < bx1 + 3.4:
+                pts.append((wx, y, bz + 0.0015, 0, 0, yaw, sc, pick))
+    scatter_pc('belt_shrimp', pts, c, root)
+    # dark slider bed under the open mesh (as plant-cold)
+    box('belt_slider', ((bx0 + bx1) / 2, 0, bz - 0.05), (bx1 - bx0, bw - 0.02, 0.01), M['ss'], c, bev=0)   # lit stainless bed: matches plant-cold's light hole tone
     # QC sampling shelf beside the belt + spare trays
     box('qc_shelf', (2.7, -1.0, QC_Z - 0.015), (1.4, 0.42, 0.03), M['ss'], C_LAB, bev=0.004)
     for x in (2.05, 3.35):
@@ -737,7 +830,7 @@ def lab():
     leaf = box('lab_door_leaf', (3.62, ly1 - 0.6, 1.1), (0.04, 1.15, 2.2), M['wall'], c, bev=0.006)
     box('lab_door_vision', (3.6, ly1 - 0.6, 1.55), (0.05, 0.4, 0.6), M['glass'], c, bev=0)
     box('lab_floor', ((lx0 + lx1) / 2, (ly0 + ly1) / 2, 0.003), (lx1 - lx0, ly1 - ly0, 0.004),
-        sklib.epoxy_floor((0.70, 0.72, 0.72), wear=0.08), c, bev=0)
+        sklib.epoxy_floor((0.42, 0.50, 0.58), wear=0.14), c, bev=0)
     # bench along the back wall: cabinets + laminate top (z 0.88) + upstand
     bz = 0.88
     bench_y = ly0 + 0.33
@@ -821,9 +914,9 @@ def lamp(c, base, target):
     ring.data.shade_smooth()
     mk('lamp_lens', lambda bm: _bm_cyl(bm, Vector((0, 0, -0.019)), 0.075, 0.004, 'Z', 32), [M['glass']], c, loc=head, bev=0)
     mk('lamp_ring_led', lambda bm: _bm_cyl(bm, Vector((0, 0, -0.019)), 0.095, 0.003, 'Z', 32),
-       [emit_mat('lamp_led', LED_K, 6.0)], c, loc=head, bev=0)
+       [emit_mat('lamp_led', look.hex_rgb('#f0b04a'), 8.0)], c, loc=head, bev=0)
     L = bpy.data.lights.new('L_lamp', 'SPOT')
-    L.energy, L.spot_size, L.color, L.shadow_soft_size = 25, 1.3, LED_K, 0.09
+    L.energy, L.spot_size, L.color, L.shadow_soft_size = 40, 1.3, look.hex_rgb('#f0b04a'), 0.09   # art r1: warm task lamp
     sklib.new_obj('L_lamp', L, c, loc=head - Vector((0, 0, 0.03)), rot=(0, 0, 0))
 
 
@@ -920,7 +1013,7 @@ def crate_full(name, color, rng, stage_w=(1, 0, 0), n=55, coll=None, hi=False):
     return cc
 
 
-CRATE_COLS = [(0.05, 0.22, 0.55), (0.55, 0.06, 0.05), (0.06, 0.32, 0.18), (0.06, 0.25, 0.58)]
+CRATE_COLS = [(0.05, 0.22, 0.55), (0.55, 0.06, 0.05), (0.85, 0.46, 0.04), (0.06, 0.25, 0.58)]   # art r1: green -> marigold
 
 
 def grade_crates(chutes, rng):
@@ -976,7 +1069,7 @@ def peel_tables(rng):
     seg_c = sklib.collection('A-PEEL-ICEBED', False)
     # one 2 m ice-bed segment (crushed ice + shrimp heaps), instanced 7x per table
     sklib.crushed_ice_fill((-0.98, 0.98, -0.16, 0.16, tz + 0.005, tz + 0.05), density=1.2, name='icebed_ice', coll=seg_c,
-                           seed=3, chunk=0.02, mound=0.03, max_chunks=2500)
+                           seed=3, chunk=0.028, mound=0.03, max_chunks=1000)   # r4: was 0.02/2500 (frame time)
     scatter('icebed_shrimp', heap(0, 0, tz + 0.045, 0.95, 0.12, 170, (1, 0, 0), random.Random(4), layers=2), seg_c)
     trays = []
     for ti, ty in enumerate((-2.4, 2.4)):
@@ -1480,14 +1573,15 @@ def cam_path():
     cam = sklib.camera('CAM', 35.0, (0, 0, 1.9), (0, 0, 0))
     # (frame, location, look-at or Euler, lens, f-stop)
     keys = [
-        (1, (0.0, 0.0, 1.90), Euler((0, 0, -math.pi / 2)), 35),                    # BRIDGE_BELT: top-down 1.0 m over the belt
-        (22, (0.25, 0.25, 2.05), (0.8, -0.35, 0.9), 35),
-        (55, (1.05, 1.15, 1.85), (2.65, -1.05, 1.0), 32),                           # QC station: tech lifts the sample tray
+        (1, (0.0, 0.0, 1.90), Euler((0, 0, math.pi / 2)), 35),                     # BRIDGE_BELT (r5: roll as plant-cold f574: image up = belt travel -X)
+        (64, (1.2, 0.95, 1.9), (2.9, -1.7, 1.0), 32),                              # slow tilt up (f1-64) to the QC station
         (100, (2.9, -0.9, 1.92), (4.4, -3.6, 1.0), 30),                             # following the tray to the lab door
         (150, (4.3, -2.8, 1.8), (5.25, -4.95, 0.98), 30),                           # through the door
-        (172, (6.25, -3.5, 1.7), (5.2, -5.05, 0.98), 32),
-        (192, (6.4, -3.6, 1.68), (5.25, -5.05, 0.98), 32),                          # bench: balance, probe, lamp
-        (240, (9.55, -4.2, 1.8), (13.5, -0.9, 1.0), 28),                            # out of the lab into grading
+        (172, (6.7, -3.4, 1.72), (5.3, -4.85, 1.05), 30),
+        (192, (7.2, -3.45, 1.72), (5.35, -4.85, 1.05), 30),                         # bench: technician 3/4 from behind, balance, lamp
+        (205, (7.9, -3.65, 1.76), (5.45, -4.7, 1.08), 28),                          # backing out, technician + bench mid distance
+        (245, (9.8, -3.95, 1.95), (8.6, 1.2, 1.0), 26),                             # through the east door: belt + QC beyond
+        (275, (12.0, -3.6, 1.85), (14.8, 0.2, 1.05), 28),                           # grader + crate stacks
         (300, (13.4, -3.15, 1.75), (17.0, -0.2, 1.05), 28),                         # along the chutes/crates
         (383, (16.0, -2.9, 5.3), (21.0, 0.6, 0.6), 24),                             # overhead reveal
         (440, (24.6, 0.0, 1.55), (31.0, 0.0, 1.2), 28),                             # peeling hall aisle, shoulder height
@@ -1523,7 +1617,9 @@ def cam_path():
     sklib.ease_keys(cam, cam.data)
     # exposure: 0 inside, -0.3 at the dock bridge (daylight exposure-matched)
     vs = scene.view_settings
-    for f, ev in ((1, 0.0), (690, 0.0), (765, -0.3)):
+    # r5: plant-cold eases to -1.9 at the join (its belt sits under bright hall lights); ours starts at PL_EXP1 to
+    # match that frame's brightness and eases back to 0 by f40
+    for f, ev in ((1, float(os.environ.get('PL_EXP1', '-2.35'))), (40, 0.0), (690, 0.0), (765, -0.3)):
         vs.exposure = ev
         vs.keyframe_insert('exposure', frame=f)
     sklib.ease_keys(scene)
@@ -1548,6 +1644,19 @@ def world_ground():
     mix.inputs['A'].default_value = (1.6, 1.5, 1.35, 1)
     nt.links.new(sky.outputs[0], mix.inputs['B'])
     nt.links.new(mix.outputs['Result'], bg.inputs['Color'])
+    # r4: without a baked volume probe EEVEE lights the closed interior with the world as ambient -> the r1-r3
+    # washed-out white. World ambient low inside, back to the sky_world default as the camera reaches the open dock.
+    st = bg.inputs['Strength']
+    # r5: f1 = plant-cold's join frame, lit by its sky ambient 0.3 -> fade to our interior 0.06 by f40
+    for f, v in ((1, 0.3), (40, 0.06), (640, 0.06), (740, 0.3)):
+        st.default_value = v
+        st.keyframe_insert('default_value', frame=f)
+    sklib.ease_keys(w.node_tree)
+    # the sun only reaches the dock end (through the door); skip its shadow maps for the rest of the flight
+    sun = bpy.data.objects['SK_Sun']
+    for f, h in ((1, True), (590, False)):
+        sun.hide_render = h
+        sun.keyframe_insert('hide_render', frame=f)
 
 
 def probes():
@@ -1563,9 +1672,259 @@ def probes():
     e.shadow_resolution_scale = 0.5
     for o in C_LIGHT.objects:
         if o.type == 'LIGHT' and o.name.startswith('L_hall'):
-            o.data.shadow_maximum_resolution = 0.02
+            o.data.shadow_maximum_resolution = 0.03
             o.data.use_shadow_jitter = False
-            o.data.use_shadow = o.location.y < 0      # half the battens cast shadows (budget)
+            # frame time: shadows only where a ceiling/wall must block them (lab box under x 2.4..9); the open halls
+            # read the same without (soft overhead light; contact shading comes from ray-traced GI)
+            o.data.use_shadow = o.location.x < 15
+
+
+def bridge_rig():
+    """r5: plant-cold's lights around its BRIDGE_BELT (dumped from plant-cold.blend at f574, offsets from the belt point
+    under the camera), placed around ours and cross-faded over f1-40 with our own nearby lights."""
+    c0 = Vector((0.0, 0.0, 0.90))
+    pc_col = (1.0, 0.782, 0.625)
+    rig = [('L_pc_pack_a', (10.6, -2.2, 3.95), 936.0, 8.0, 1.4, True), ('L_pc_pack_b', (2.2, -2.2, 3.95), 936.0, 8.0, 1.4, True),
+           ('L_pc_pack_left', (4.4, -5.8, 3.95), 936.0, 21.0, 1.0, False), ('L_pc_pack_right', (4.4, 1.4, 3.95), 936.0, 21.0, 1.0, False),
+           ('L_pc_iqf', (-0.2, -1.1, 3.95), 264.0, 1.4, 3.2, True), ('L_pc_bridge', (0.0, 0.0, 2.4), 60.0, 1.2, 1.2, True)]
+    for nm, d, e, sx, sy, sh in rig:
+        L = bpy.data.lights.new(nm, 'AREA')
+        L.shape, L.size, L.size_y, L.color, L.use_shadow = 'RECTANGLE', sx, sy, pc_col, sh
+        o = sklib.new_obj(nm, L, C_BELT, loc=c0 + Vector(d))
+        for f, v in ((1, e), (40, 0.0)):
+            L.energy = v
+            L.keyframe_insert('energy', frame=f)
+        sklib.ease_keys(L)
+        if nm == 'L_pc_bridge':          # art: plant-cold's 8000 K BRIDGE_BELT key
+            L.color = look.hex_rgb('#d6ecff')
+        for f, h in ((1, False), (41, True)):
+            o.hide_render = h
+            o.keyframe_insert('hide_render', frame=f)
+    # art: plant-cold's grazing cyan belt rim ART_belt_rim (X_BB - 1.2, belt + 0.35, 400 W x LIGHT_K 0.6) from the freezer side
+    L = bpy.data.lights.new('L_pc_rim', 'AREA')
+    L.shape, L.size, L.size_y, L.color, L.use_shadow, L.spread = 'RECTANGLE', 0.3, 1.4, look.hex_rgb('#a8f0ff'), False, 50 * D2R
+    o = sklib.new_obj('L_pc_rim', L, C_BELT, loc=c0 + Vector((-1.2, 0.0, 0.35)), rot=(0, -80 * D2R, 0))
+    for f, v in ((1, 240.0), (40, 0.0)):
+        L.energy = v
+        L.keyframe_insert('energy', frame=f)
+    sklib.ease_keys(L)
+    for f, h in ((1, False), (41, True)):
+        o.hide_render = h
+        o.keyframe_insert('hide_render', frame=f)
+    for nm in ('L_belt', 'L_hall_-3', 'L_hall_4'):
+        o = bpy.data.objects.get(nm)
+        if not o:
+            continue
+        e = o.data.energy
+        for f, v in ((1, 0.0), (40, e)):
+            o.data.energy = v
+            o.data.keyframe_insert('energy', frame=f)
+        sklib.ease_keys(o.data)
+
+
+def bake_people():
+    """Frame time: people.py stacks are DISPLACE/SOLIDIFY -> ARMATURE -> DECIMATE/MASK, so every frame (x3 with motion
+    blur) re-solidifies and re-decimates ~60k verts per person. Bake everything except the armature in rest pose
+    (vertex groups survive) -> only the skinning runs per frame. Same look (decimate/mask are pose-independent)."""
+    meshes = []
+    for rig in [o for o in scene.objects if o.type == 'ARMATURE']:
+        for c in rig.children:
+            if c.type == 'MESH' and any(m.type != 'ARMATURE' for m in c.modifiers):
+                meshes.append(c)
+                for m in c.modifiers:
+                    if m.type == 'ARMATURE':
+                        m.show_viewport = m.show_render = False
+    dg = bpy.context.evaluated_depsgraph_get()
+    dg.update()
+    v0 = v1 = 0
+    for c in meshes:
+        ev = c.evaluated_get(dg)
+        me = bpy.data.meshes.new_from_object(ev, preserve_all_data_layers=True, depsgraph=dg)
+        v0 += len(c.data.vertices)
+        v1 += len(me.vertices)
+        old = c.data
+        c.data = me
+        if old.users == 0:
+            bpy.data.meshes.remove(old)
+        for m in [m for m in c.modifiers if m.type != 'ARMATURE']:
+            c.modifiers.remove(m)
+        for m in c.modifiers:
+            m.show_viewport = m.show_render = True
+    print('BAKE_PEOPLE meshes', len(meshes), 'verts', v0, '->', v1)
+
+
+def _bbox_world(o, dg):
+    """World AABB (lo, hi) for frustum culling; lights/probes = their reach, instances = a generous box."""
+    c = o.matrix_world.translation
+    if o.type == 'LIGHT':
+        r = 9.0 if o.data.type == 'AREA' and o.data.size > 3 else 4.0
+        return c - Vector((r, r, r)), c + Vector((r, r, r))
+    if o.type == 'LIGHT_PROBE':
+        r = o.data.influence_distance + 1.0
+        return c - Vector((r, r, r)), c + Vector((r, r, r))
+    if o.type == 'EMPTY':
+        r = 1.3
+        return c - Vector((r, r, r)), c + Vector((r, r, r))
+    ev = o.evaluated_get(dg)
+    pts = [ev.matrix_world @ Vector(v) for v in ev.bound_box]
+    if any(m.type == 'NODES' for m in o.modifiers) and len(o.data.vertices) < 20000:
+        mw = o.matrix_world
+        pts += [mw @ v.co for v in o.data.vertices]
+    lo = Vector((min(p.x for p in pts), min(p.y for p in pts), min(p.z for p in pts))) - Vector((0.2, 0.2, 0.2))
+    hi = Vector((max(p.x for p in pts), max(p.y for p in pts), max(p.z for p in pts))) + Vector((0.2, 0.2, 0.2))
+    return lo, hi
+
+
+def auto_vis(cam, step=3, widen=1.3, near=4.0, far=90.0):
+    """Frame time: key hide_render so every object / light / probe whose box is outside the (widened) camera frustum
+    is not rendered. Sampled every `step` frames, dilated by one sample; combined with existing hide_render keys."""
+    from bpy_extras import anim_utils
+    cands = [o for o in scene.objects if o.type in ('MESH', 'LIGHT_PROBE') or (o.type == 'LIGHT' and o.data.type != 'SUN')
+             or (o.type == 'EMPTY' and o.instance_type == 'COLLECTION' and o.instance_collection)]
+    frames = list(range(1, F_END + 1, step))
+    if frames[-1] != F_END:
+        frames.append(F_END)
+    orig = {}
+    for o in cands:
+        for fc in sklib._fcurves(o):
+            if fc.data_path == 'hide_render':
+                orig[o.name] = [fc.evaluate(f) > 0.5 for f in range(F_END + 2)]
+    vis = {o.name: [] for o in cands}
+    sw = cam.data.sensor_width
+    for f in frames:
+        scene.frame_set(f)
+        dg = bpy.context.evaluated_depsgraph_get()
+        cm = cam.matrix_world.inverted()
+        cp = cam.matrix_world.translation
+        th = (sw / 2) / cam.data.lens * widen
+        tv = th * 9 / 16 + 0.08
+        for o in cands:
+            lo, hi = _bbox_world(o, dg)
+            cl = Vector((min(max(cp.x, lo.x), hi.x), min(max(cp.y, lo.y), hi.y), min(max(cp.z, lo.z), hi.z)))
+            if (cl - cp).length < near:
+                vis[o.name].append(True)
+                continue
+            P = [cm @ Vector((x, y, z)) for x in (lo.x, hi.x) for y in (lo.y, hi.y) for z in (lo.z, hi.z)]
+            out = (all(p.z > -0.05 for p in P) or all(p.z < -far for p in P)
+                   or all(p.x + th * p.z > 0 for p in P) or all(-p.x + th * p.z > 0 for p in P)
+                   or all(p.y + tv * p.z > 0 for p in P) or all(-p.y + tv * p.z > 0 for p in P))
+            vis[o.name].append(not out)
+    nk = nh = 0
+    for o in cands:
+        v = vis[o.name]
+        vd = [any(v[max(0, i - 1):i + 2]) for i in range(len(v))]
+        per = []
+        for f in range(1, F_END + 1):
+            i = min((f - 1) // step, len(frames) - 1)
+            seen = vd[i] or (i + 1 < len(vd) and vd[i + 1])
+            hid = (orig[o.name][f] if o.name in orig else o.hide_render) or not seen
+            per.append(hid)
+        if o.name in orig:
+            ad = o.animation_data
+            cb = anim_utils.action_get_channelbag_for_slot(ad.action, ad.action_slot)
+            for fc in [fc for fc in cb.fcurves if fc.data_path == 'hide_render']:
+                cb.fcurves.remove(fc)
+        if all(per) or not any(per):
+            o.hide_render = per[0]
+            nh += all(per)
+            continue
+        prev = None
+        for f, h in enumerate(per, 1):
+            if h != prev:
+                o.hide_render = h
+                o.keyframe_insert('hide_render', frame=f)
+                nk += 1
+                prev = h
+        for fc in sklib._fcurves(o):
+            if fc.data_path == 'hide_render':
+                for k in fc.keyframe_points:
+                    k.interpolation = 'CONSTANT'
+    scene.frame_set(1)
+    print('AUTO_VIS candidates', len(cands), 'keys', nk, 'never seen', nh)
+
+
+# ============================================================================================ ART PASS (issue #75)
+def _aim(name, kind, hexc, energy, loc, target, size=(1.0, 1.0), coll=None, shadow=False):
+    """Coloured area/spot light at loc aimed at target (COLOR_SCRIPT rows 06-09)."""
+    L = bpy.data.lights.new(name, kind)
+    L.color, L.energy = look.hex_rgb(hexc), energy
+    if kind == 'AREA':
+        L.shape, L.size, L.size_y = 'RECTANGLE', size[0], size[1]
+    L.use_shadow = shadow
+    d = Vector(target) - Vector(loc)
+    return sklib.new_obj(name, L, coll or C_LIGHT, loc=loc, rot=d.to_track_quat('-Z', 'Y').to_euler())
+
+
+def art_lights():
+    """Key stays the overhead LED (5000 K; 5500 K in the wash bay). Per zone: cool coloured fill from the side, warm rim
+    from ahead of the camera (it travels +X), so every shot has key / cool fill / warm rim."""
+    for o in C_LIGHT.objects:
+        if o.type == 'LIGHT' and o.name.startswith('L_hall'):     # art r3: cool key #eef4ff (row 06); 5500 K in the wash bay
+            o.data.color = sklib.kelvin_rgb(5500) if o.location.x > 43 else look.hex_rgb('#eef4ff')
+    for nm in ('L_lab_a', 'L_lab_b'):
+        look.light(nm, '#eef4ff', 60)     # art r4: lab read hot (luma 179)
+    # 06 v-qc lab: fill #7f9fd0 from the window side, lamp rim #ffc27a behind the technician
+    _aim('A_lab_fill', 'AREA', '#7f9fd0', 50, (6.0, -3.25, 2.4), (5.8, -5.0, 0.9), (3.0, 0.6), C_LAB)
+    _aim('A_lab_rim', 'AREA', '#ffc27a', 90, (6.3, -5.2, 2.1), (5.6, -4.3, 1.2), (0.6, 0.4), C_LAB)
+    _aim('A_qc_rim', 'AREA', '#ffc27a', 220, (4.5, -1.2, 2.6), (2.6, -1.4, 0.9), (1.0, 0.6))
+    # 07 v-grade: fill #7090c8 from the south wall, warm rim #ffd59a from ahead
+    _aim('A_grade_fill', 'AREA', '#7090c8', 450, (16.0, -6.5, 3.6), (16.0, 0.5, 0.8), (10.0, 2.0))
+    _aim('A_grade_rim', 'AREA', '#ffd59a', 1200, (23.0, 1.5, 3.8), (16.0, 0.3, 0.9), (4.0, 2.0))
+    # 08 v-peel: fill #6c8cc0 from both walls, warm rim #ffc890 from the partition side
+    _aim('A_peel_fill_s', 'AREA', '#6c8cc0', 450, (33.0, -7.2, 3.6), (33.0, 0.0, 1.0), (14.0, 2.0))
+    _aim('A_peel_fill_n', 'AREA', '#6c8cc0', 200, (33.0, 7.2, 3.6), (33.0, 0.0, 1.0), (14.0, 2.0))
+    _aim('A_peel_rim', 'AREA', '#ffc890', 2000, (42.3, 0.0, 4.0), (33.0, 0.0, 1.0), (7.0, 2.0))
+    # 09 v-wash: fill #5d86b0, morning light #ffc078 flooding in at the dock door (sun does the hard light)
+    _aim('A_wash_fill', 'AREA', '#5d86b0', 250, (50.0, -6.5, 3.6), (51.5, 1.0, 0.8), (8.0, 2.0))
+    _aim('A_dock_spill', 'AREA', '#ffc078', 1100, (57.7, 0.0, 1.5), (50.0, 0.0, 0.3), (3.0, 3.0))
+    look.light('L_dock_fill', '#ffd08a')
+    for o in C_LIGHT.objects:
+        if o.type == 'LIGHT' and o.name.startswith('L_hall'):
+            o.data.energy *= 0.8     # art r2: lower key -> coloured fill/rim read, deeper fields
+    look.light('SK_Sun', '#ffc98a')          # BRIDGE_DOCK: morning sun 20 deg / 100 deg #ffc98a (truck matches)
+
+
+def world_tint():
+    """Interior ambient tinted cool (#18222e family, low strength); back to the plain morning sky at the open dock."""
+    nt = scene.world.node_tree
+    bg = [n for n in nt.nodes if n.type == 'BACKGROUND'][0]
+    src = bg.inputs['Color'].links[0].from_socket
+    mx = nt.nodes.new('ShaderNodeMix')
+    mx.data_type, mx.blend_type = 'RGBA', 'MULTIPLY'
+    mx.inputs['Factor'].default_value = 1.0
+    sock = {(x.name, x.type): x for x in mx.inputs}
+    nt.links.new(src, sock[('A', 'RGBA')])
+    nt.links.new([x for x in mx.outputs if x.type == 'RGBA'][0], bg.inputs['Color'])
+    b = sock[('B', 'RGBA')]
+    cool = (*look.hex_rgb('#8fb0e6'), 1)
+    for f, v in ((1, (1, 1, 1, 1)), (40, cool), (660, cool), (740, (1, 1, 1, 1))):
+        b.default_value = v
+        b.keyframe_insert('default_value', frame=f)
+
+
+def fog_keys():
+    """Fog as an interior volume box, NOT the world volume look.apply adds: EEVEE treats a world volume as infinite and
+    absorbs the sky, which turned the dock door black/blocky (art r1-r2). Colour #cfe3ee (wet haze); density per chapter:
+    lab almost none, line 0.0007, hall 0.0006, wash 0.001."""
+    nt = scene.world.node_tree
+    if 'SK_FOG' in nt.nodes:
+        nt.nodes.remove(nt.nodes['SK_FOG'])
+    m, mnt = sklib._new_mat('fog_interior')
+    out = sklib._n(mnt, 'ShaderNodeOutputMaterial', 300, 0)
+    vol = sklib._n(mnt, 'ShaderNodeVolumePrincipled', 0, 0)
+    sklib._l(mnt, vol.outputs['Volume'], out.inputs['Volume'])
+    vol.inputs['Color'].default_value = (*look.hex_rgb('#cfe3ee'), 1)
+    vol.inputs['Anisotropy'].default_value = 0.3
+    d = vol.inputs['Density']
+    for f, v in ((1, 0.0015), (60, 0.0002), (200, 0.0002), (260, 0.0007), (400, 0.0006), (600, 0.0006), (660, 0.0010),
+                 (765, 0.0008)):
+        d.default_value = v
+        d.keyframe_insert('default_value', frame=f)
+    box('fog_interior', ((X0 + X1) / 2, 0, H / 2), (X1 - X0 - 0.1, Y1 - Y0 - 0.1, H - 0.05), m, C_BUILD, bev=0)
+    e = scene.eevee
+    e.volumetric_tile_size = os.environ.get('PL_VTILE', '8')
+    e.volumetric_samples = int(os.environ.get('PL_VSAMP', '24'))
+    e.volumetric_end = 80.0
 
 
 # ============================================================================================ BUILD
@@ -1587,8 +1946,46 @@ if not FAST:
     technician(bench_y, bz)
 staff(chutes)
 tipping_crate(tank)
+bake_people()
 cam = cam_path()
+bridge_rig()
+art_lights()
+auto_vis(cam)
 scene.frame_set(1)
 path = sklib.finish('plant-line', 'int')
+# r4: contrast (r1-r3 read washed-out white) + frame time; set after finish (finish applies the per-kind defaults)
+scene.view_settings.look = 'AgX - Medium High Contrast'
+scene.eevee.taa_render_samples = int(os.environ.get('PL_SPP', '24'))
+# r5: plant-cold renders its join frame without motion blur (shutter 0 from f528); ramp ours 0 -> 0.5 over f1-30
+for f, v in ((1, 0.0), (30, 0.5)):
+    scene.render.motion_blur_shutter = v
+    scene.keyframe_insert('render.motion_blur_shutter', frame=f)
+for fc in sklib._fcurves(scene):
+    if 'motion_blur_shutter' in fc.data_path:
+        for k in fc.keyframe_points:
+            k.interpolation = 'LINEAR'
+# art pass (issue #75): one grade for the whole blend (internal joins identical); fog/world keyed per chapter
+look.apply(scene, 'plant-line')
+# COLOR_SCRIPT 3 (complementary): cool blue lift (<= 0.025), warm lamp/door gain (<= 0.035)
+look.grade(scene, lift='#2a4a6e', gain='#ffd59a', sat=1.14, contrast=8.0, bloom=0.15, vignette=0.1, lift_amt=0.025, gain_amt=0.035)
+scene.view_settings.look = 'AgX - Medium High Contrast'
+world_tint()
+fog_keys()
+# BRIDGE_BELT: f1 takes plant-cold's grade (lift #1e2a4f 0.008, gain #cfe0ff 0.012) and eases to ours by f40; joins 192/383/574 untouched
+# measured: our f1 mean RGB 193/191/187 vs plant-cold f574 170/182/187 -> linear white balance at f1 (eased out by f40)
+PC_BAL = (0.78, 0.91, 1.0)
+try:
+    cb = [n for n in scene.compositing_node_group.nodes if n.bl_idname == 'CompositorNodeColorBalance'][0]
+    for nm, pc, ours in (('Lift', look._tint('#1e2a4f', 0.08), look._tint('#2a4a6e', 0.25)),
+                         ('Gain', tuple(c * k for c, k in zip(look._tint('#cfe0ff', 0.12), PC_BAL)), look._tint('#ffd59a', 0.35))):
+        sk = [x for x in cb.inputs if x.name == nm and x.type == 'RGBA'][0]
+        for f, v in ((1, pc), (40, ours)):
+            sk.default_value = (*v, 1)
+            sk.keyframe_insert('default_value', frame=f)
+    print('PL grade keyed f1-40')
+except Exception as ex:          # never lose a build over the opening ease
+    print('PL grade key FAILED', ex)
+bpy.ops.wm.save_mainfile(compress=True)
+print('PL look', scene.view_settings.look, 'spp', scene.eevee.taa_render_samples)
 for f in STILLS:
     sklib.render_still(STILL_DIR + 'pl_%s_f%03d.png' % (TAG, f), f, (960, 540))
